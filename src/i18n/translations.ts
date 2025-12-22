@@ -109,6 +109,14 @@ export const translations = {
       address: 'Buxoro shahri, Navoiy ko\'chasi, 15-uy',
       workingHours: 'Ish vaqti: 09:00 - 21:00',
       rights: 'Barcha huquqlar himoyalangan.',
+      ourStores: 'Bizning do\'konlar',
+      stores: {
+        main: 'Bosh do\'kon: Buxoro, Navoiy ko\'chasi, 15',
+        store2: 'Buxoro, Ibn Sino ko\'chasi, 28',
+        store3: 'Buxoro, Mustaqillik ko\'chasi, 45',
+        store4: 'Buxoro City Mall, 2-qavat',
+        store5: 'Kogon tumani, Markaziy bozor',
+      },
     },
     admin: {
       login: 'Admin kirish',
@@ -402,6 +410,14 @@ export const translations = {
       address: 'г. Бухара, ул. Навои, дом 15',
       workingHours: 'Режим работы: 09:00 - 21:00',
       rights: 'Все права защищены.',
+      ourStores: 'Наши магазины',
+      stores: {
+        main: 'Главный: Бухара, ул. Навои, 15',
+        store2: 'Бухара, ул. Ибн Сино, 28',
+        store3: 'Бухара, ул. Мустакиллик, 45',
+        store4: 'Бухара Сити Молл, 2-й этаж',
+        store5: 'Каган, Центральный рынок',
+      },
     },
     admin: {
       login: 'Вход в панель администратора',
@@ -695,6 +711,14 @@ export const translations = {
       address: 'Bukhara city, Navoiy street, 15',
       workingHours: 'Working Hours: 09:00 - 21:00',
       rights: 'All rights reserved.',
+      ourStores: 'Our Stores',
+      stores: {
+        main: 'Main Store: Bukhara, Navoiy St. 15',
+        store2: 'Bukhara, Ibn Sino St. 28',
+        store3: 'Bukhara, Mustaqillik St. 45',
+        store4: 'Bukhara City Mall, 2nd Floor',
+        store5: 'Kogon District, Central Market',
+      },
     },
     admin: {
       login: 'Admin Login',

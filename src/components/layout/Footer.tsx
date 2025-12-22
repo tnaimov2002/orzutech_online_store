@@ -1,8 +1,36 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Phone, Mail, MapPin, Clock, Facebook, Instagram, Youtube, Send, Shield } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, Facebook, Instagram, Youtube, Send, Shield, ExternalLink } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAdmin } from '../../context/AdminContext';
+
+const storeLocations = [
+  {
+    key: 'main',
+    coords: '39.7747,64.4286',
+    query: 'Navoiy street 15, Bukhara, Uzbekistan',
+  },
+  {
+    key: 'store2',
+    coords: '39.7712,64.4198',
+    query: 'Ibn Sino street 28, Bukhara, Uzbekistan',
+  },
+  {
+    key: 'store3',
+    coords: '39.7689,64.4352',
+    query: 'Mustaqillik street 45, Bukhara, Uzbekistan',
+  },
+  {
+    key: 'store4',
+    coords: '39.7801,64.4156',
+    query: 'Bukhara City Mall, Bukhara, Uzbekistan',
+  },
+  {
+    key: 'store5',
+    coords: '39.7156,64.5489',
+    query: 'Central Market, Kogon, Bukhara, Uzbekistan',
+  },
+];
 
 export default function Footer() {
   const { t } = useLanguage();
@@ -18,11 +46,15 @@ export default function Footer() {
     }
   };
 
+  const getGoogleMapsUrl = (query: string) => {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  };
+
   return (
     <footer className="bg-black text-white">
       <div className="max-w-7xl mx-auto px-4 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-10">
+          <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-3 mb-6 group">
               <motion.img
                 src="/yulduz_orange.png"
@@ -35,18 +67,18 @@ export default function Footer() {
                 ORZUTECH
               </span>
             </Link>
-            <p className="text-gray-400 leading-relaxed mb-6">
+            <p className="text-gray-400 leading-relaxed mb-6 text-sm">
               {t.footer.aboutText}
             </p>
-            <div className="flex gap-4">
+            <div className="flex gap-3">
               {[Facebook, Instagram, Youtube, Send].map((Icon, index) => (
                 <motion.a
                   key={index}
                   href="#"
                   whileHover={{ scale: 1.1, y: -2 }}
-                  className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center hover:bg-orange-500 transition-colors"
+                  className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-orange-500 transition-colors"
                 >
-                  <Icon className="w-5 h-5" />
+                  <Icon className="w-4 h-4" />
                 </motion.a>
               ))}
             </div>
@@ -63,7 +95,7 @@ export default function Footer() {
                 <li key={link.to}>
                   <Link
                     to={link.to}
-                    className="text-gray-400 hover:text-orange-500 transition-colors inline-flex items-center gap-2"
+                    className="text-gray-400 hover:text-orange-500 transition-colors inline-flex items-center gap-2 text-sm"
                   >
                     <span className="w-1.5 h-1.5 bg-orange-500 rounded-full" />
                     {link.label}
@@ -75,27 +107,46 @@ export default function Footer() {
 
           <div>
             <h3 className="text-lg font-semibold mb-6">{t.footer.contact}</h3>
-            <ul className="space-y-4">
-              <li className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-orange-500 mt-0.5 flex-shrink-0" />
-                <span className="text-gray-400">{t.footer.address}</span>
-              </li>
+            <ul className="space-y-3">
               <li className="flex items-center gap-3">
-                <Phone className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                <a href="tel:+998652210000" className="text-gray-400 hover:text-orange-500 transition-colors">
+                <Phone className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                <a href="tel:+998652210000" className="text-gray-400 hover:text-orange-500 transition-colors text-sm">
                   {t.nav.phone}
                 </a>
               </li>
               <li className="flex items-center gap-3">
-                <Mail className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                <a href="mailto:info@orzutech.uz" className="text-gray-400 hover:text-orange-500 transition-colors">
+                <Mail className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                <a href="mailto:info@orzutech.uz" className="text-gray-400 hover:text-orange-500 transition-colors text-sm">
                   info@orzutech.uz
                 </a>
               </li>
               <li className="flex items-center gap-3">
-                <Clock className="w-5 h-5 text-orange-500 flex-shrink-0" />
-                <span className="text-gray-400">{t.footer.workingHours}</span>
+                <Clock className="w-4 h-4 text-orange-500 flex-shrink-0" />
+                <span className="text-gray-400 text-sm">{t.footer.workingHours}</span>
               </li>
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold mb-6">{t.footer.ourStores}</h3>
+            <ul className="space-y-3">
+              {storeLocations.map((store) => (
+                <li key={store.key}>
+                  <motion.a
+                    href={getGoogleMapsUrl(store.query)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    whileHover={{ x: 3 }}
+                    className="group flex items-start gap-2 text-gray-400 hover:text-orange-500 transition-all text-sm"
+                  >
+                    <MapPin className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="flex-1">
+                      {t.footer.stores[store.key as keyof typeof t.footer.stores]}
+                    </span>
+                    <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
+                  </motion.a>
+                </li>
+              ))}
             </ul>
           </div>
 
@@ -108,13 +159,13 @@ export default function Footer() {
               <input
                 type="email"
                 placeholder={t.common.email}
-                className="w-full px-4 py-3 bg-white/10 rounded-lg border border-white/20 focus:border-orange-500 focus:outline-none text-white placeholder-gray-500"
+                className="w-full px-4 py-3 bg-white/10 rounded-lg border border-white/20 focus:border-orange-500 focus:outline-none text-white placeholder-gray-500 text-sm"
               />
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 type="submit"
-                className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 rounded-lg font-medium hover:shadow-lg hover:shadow-orange-500/30 transition-shadow"
+                className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 rounded-lg font-medium hover:shadow-lg hover:shadow-orange-500/30 transition-shadow text-sm"
               >
                 {t.common.subscribe}
               </motion.button>
