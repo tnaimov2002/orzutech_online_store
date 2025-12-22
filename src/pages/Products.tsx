@@ -215,29 +215,38 @@ export default function Products() {
       <div className="border-t border-gray-100 pt-6">
         <h3 className="font-semibold text-gray-900 mb-4">{t.product.brands}</h3>
         <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-          {brands.map((brand) => (
-            <label
-              key={brand}
-              className="flex items-center gap-3 cursor-pointer group py-1.5"
-            >
-              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                pendingBrands.includes(brand)
-                  ? 'bg-orange-500 border-orange-500'
-                  : 'border-gray-300 group-hover:border-orange-400'
-              }`}>
-                {pendingBrands.includes(brand) && (
-                  <Check className="w-3 h-3 text-white" />
-                )}
-              </div>
-              <span className={`transition-colors ${
-                pendingBrands.includes(brand)
-                  ? 'text-gray-900 font-medium'
-                  : 'text-gray-600 group-hover:text-gray-900'
-              }`}>
-                {brand}
-              </span>
-            </label>
-          ))}
+          {brands.map((brand) => {
+            const isChecked = pendingBrands.includes(brand);
+            return (
+              <label
+                key={brand}
+                className="flex items-center gap-3 cursor-pointer group py-1.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => handleBrandToggle(brand)}
+                  className="sr-only"
+                />
+                <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all pointer-events-none ${
+                  isChecked
+                    ? 'bg-orange-500 border-orange-500'
+                    : 'border-gray-300 group-hover:border-orange-400'
+                }`}>
+                  {isChecked && (
+                    <Check className="w-3 h-3 text-white" />
+                  )}
+                </div>
+                <span className={`transition-colors ${
+                  isChecked
+                    ? 'text-gray-900 font-medium'
+                    : 'text-gray-600 group-hover:text-gray-900'
+                }`}>
+                  {brand}
+                </span>
+              </label>
+            );
+          })}
           {brands.length === 0 && (
             <p className="text-sm text-gray-400 italic">{t.product.noProducts}</p>
           )}
