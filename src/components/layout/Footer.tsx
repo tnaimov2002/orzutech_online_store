@@ -6,29 +6,29 @@ import { useAdmin } from '../../context/AdminContext';
 
 const storeLocations = [
   {
-    key: 'main',
-    coords: '39.7747,64.4286',
-    query: 'Navoiy street 15, Bukhara, Uzbekistan',
+    key: 'computers',
+    name: 'ORZUTECH Computers',
+    query: 'Muhammad Iqbol street 64, Bukhara, Uzbekistan',
   },
   {
-    key: 'store2',
-    coords: '39.7712,64.4198',
-    query: 'Ibn Sino street 28, Bukhara, Uzbekistan',
+    key: 'express',
+    name: 'ORZUTECH Express',
+    query: 'Mustaqillik street 11, Bukhara, Uzbekistan',
   },
   {
-    key: 'store3',
-    coords: '39.7689,64.4352',
-    query: 'Mustaqillik street 45, Bukhara, Uzbekistan',
+    key: 'mobile',
+    name: 'ORZUTECH Mobile',
+    query: 'Mustaqillik street 17, Bukhara, Uzbekistan',
   },
   {
-    key: 'store4',
-    coords: '39.7801,64.4156',
-    query: 'Bukhara City Mall, Bukhara, Uzbekistan',
+    key: 'electronics',
+    name: 'ORZUTECH Electronics',
+    query: 'Muhammad Iqbol street 64, Bukhara, Uzbekistan',
   },
   {
-    key: 'store5',
-    coords: '39.7156,64.5489',
-    query: 'Central Market, Kogon, Bukhara, Uzbekistan',
+    key: 'security',
+    name: 'ORZUTECH Security',
+    query: 'Mustaqillik street 17, Bukhara, Uzbekistan',
   },
 ];
 
@@ -129,7 +129,7 @@ export default function Footer() {
 
           <div>
             <h3 className="text-lg font-semibold mb-6">{t.footer.ourStores}</h3>
-            <ul className="space-y-3">
+            <ul className="space-y-4">
               {storeLocations.map((store) => (
                 <li key={store.key}>
                   <motion.a
@@ -137,12 +137,17 @@ export default function Footer() {
                     target="_blank"
                     rel="noopener noreferrer"
                     whileHover={{ x: 3 }}
-                    className="group flex items-start gap-2 text-gray-400 hover:text-orange-500 transition-all text-sm"
+                    className="group flex items-start gap-2 text-gray-400 hover:text-orange-500 transition-all text-sm cursor-pointer"
                   >
                     <MapPin className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="flex-1">
-                      {t.footer.stores[store.key as keyof typeof t.footer.stores]}
-                    </span>
+                    <div className="flex-1">
+                      <span className="font-semibold text-white group-hover:text-orange-500 transition-colors block">
+                        {store.name}
+                      </span>
+                      <span className="text-gray-500 group-hover:text-orange-400 transition-colors">
+                        {t.footer.stores[store.key as keyof typeof t.footer.stores]}
+                      </span>
+                    </div>
                     <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
                   </motion.a>
                 </li>
