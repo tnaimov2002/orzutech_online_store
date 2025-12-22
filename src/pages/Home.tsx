@@ -10,18 +10,15 @@ import BannerSlider from '../components/ui/BannerSlider';
 import ProductCard from '../components/ui/ProductCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
-const FEATURED_CATEGORY_KEYWORDS = [
-  'laptop',
-  'smartphone',
-  'home appliance',
-  'tablet',
-  'gaming',
-  'television',
-  'tv',
-  'air purifier',
-  'prebuilt',
-  'desktop',
-  'computer',
+const FEATURED_CATEGORY_NAMES = [
+  'Noutbuklar',
+  'Smartfonlar',
+  'Maishiy texnika',
+  'Planshetlar',
+  "O'yinlar",
+  'Televizorlar',
+  'Havo tozalagichlar',
+  'Tayyor kompyuterlar',
 ];
 
 export default function Home() {
@@ -62,7 +59,7 @@ export default function Home() {
         .from('categories')
         .select('*')
         .eq('status', 'active')
-        .order('sort_order'),
+        .in('name_uz', FEATURED_CATEGORY_NAMES),
     ]);
 
     if (newRes.data) setNewProducts(newRes.data);
@@ -70,12 +67,10 @@ export default function Home() {
     if (discountRes.data) setDiscountProducts(discountRes.data);
 
     if (categoriesRes.data) {
-      const matched = categoriesRes.data.filter((cat) => {
-        const searchText = `${cat.name_en} ${cat.name_uz} ${cat.name_ru}`.toLowerCase();
-        return FEATURED_CATEGORY_KEYWORDS.some((keyword) => searchText.includes(keyword));
-      });
-      const uniqueCategories = matched.slice(0, 8);
-      setFeaturedCategories(uniqueCategories);
+      const orderedCategories = FEATURED_CATEGORY_NAMES
+        .map(name => categoriesRes.data.find(cat => cat.name_uz === name))
+        .filter((cat): cat is Category => cat !== undefined);
+      setFeaturedCategories(orderedCategories);
     }
 
     setLoading(false);
