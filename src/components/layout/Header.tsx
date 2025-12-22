@@ -336,8 +336,11 @@ export default function Header() {
                   <div key={category.id} className="relative">
                     <button
                       onClick={(e) => toggleDropdown(category.id, e)}
-                      className="group relative px-5 py-2.5 flex items-center gap-1.5"
+                      className="group relative px-4 py-2.5 flex items-center gap-2"
                     >
+                      <span className="relative z-10 transition-transform duration-300 ease-out group-hover:scale-110">
+                        {renderCategoryIcon(category, 'sm')}
+                      </span>
                       <span className={`relative z-10 text-[15px] font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
                         isOpen || isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
                       }`}>
@@ -385,8 +388,11 @@ export default function Header() {
                 <Link
                   key={category.id}
                   to={`/products?category=${category.id}`}
-                  className="group relative px-5 py-2.5"
+                  className="group relative px-4 py-2.5 flex items-center gap-2"
                 >
+                  <span className="relative z-10 transition-transform duration-300 ease-out group-hover:scale-110">
+                    {renderCategoryIcon(category, 'sm')}
+                  </span>
                   <span className={`relative z-10 text-[15px] font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
                     isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
                   }`}>
