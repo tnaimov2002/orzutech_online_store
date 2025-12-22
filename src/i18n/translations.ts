@@ -40,7 +40,9 @@ export const translations = {
       priceRange: 'Narx oralig\'i',
       brands: 'Brendlar',
       clearFilters: 'Filtrlarni tozalash',
+      applyFilters: 'Filtrlarni qo\'llash',
       noProducts: 'Mahsulotlar topilmadi',
+      productsFound: 'ta mahsulot topildi',
       sortBy: 'Saralash',
       sortOptions: {
         newest: 'Eng yangi',
@@ -341,7 +343,9 @@ export const translations = {
       priceRange: 'Диапазон цен',
       brands: 'Бренды',
       clearFilters: 'Сбросить фильтры',
+      applyFilters: 'Применить фильтры',
       noProducts: 'Товары не найдены',
+      productsFound: 'товаров найдено',
       sortBy: 'Сортировка',
       sortOptions: {
         newest: 'Сначала новые',
@@ -642,7 +646,9 @@ export const translations = {
       priceRange: 'Price Range',
       brands: 'Brands',
       clearFilters: 'Clear Filters',
+      applyFilters: 'Apply Filters',
       noProducts: 'No products found',
+      productsFound: 'products found',
       sortBy: 'Sort By',
       sortOptions: {
         newest: 'Newest First',
