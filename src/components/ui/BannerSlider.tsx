@@ -62,34 +62,52 @@ export default function BannerSlider() {
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: `url(${currentBanner.image_url})` }}
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-black/20 md:from-black/70 md:via-black/40 md:to-transparent" />
           </div>
 
-          <div className="relative h-full max-w-7xl mx-auto px-4 flex items-center">
-            <motion.div
-              initial={{ opacity: 0, x: -50 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-              className="max-w-lg text-white"
-            >
-              <h2 className="text-4xl md:text-5xl font-bold mb-4 leading-tight">
-                {getLocalizedField(currentBanner, 'title')}
-              </h2>
-              <p className="text-lg md:text-xl text-white/80 mb-8">
-                {getLocalizedField(currentBanner, 'subtitle')}
-              </p>
-              {currentBanner.link_url && (
-                <Link to={currentBanner.link_url}>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-8 py-4 bg-orange-500 hover:bg-orange-600 rounded-xl font-semibold text-lg shadow-lg shadow-orange-500/30 transition-colors"
+          <div className="relative h-full flex items-center justify-center md:justify-start">
+            <div className="w-full max-w-7xl mx-auto px-4 flex justify-center md:justify-start md:pl-[15%] lg:pl-[20%]">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="max-w-xl text-white text-center md:text-left"
+              >
+                <motion.h2
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.3 }}
+                  className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 leading-tight"
+                >
+                  {getLocalizedField(currentBanner, 'title')}
+                </motion.h2>
+                <motion.p
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.5 }}
+                  className="text-base sm:text-lg md:text-xl text-white/80 mb-8"
+                >
+                  {getLocalizedField(currentBanner, 'subtitle')}
+                </motion.p>
+                {currentBanner.link_url && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: 0.7 }}
                   >
-                    {t.home.shopNow}
-                  </motion.button>
-                </Link>
-              )}
-            </motion.div>
+                    <Link to={currentBanner.link_url}>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="px-8 py-4 bg-orange-500 hover:bg-orange-600 rounded-xl font-semibold text-lg shadow-lg shadow-orange-500/30 transition-colors"
+                      >
+                        {t.home.shopNow}
+                      </motion.button>
+                    </Link>
+                  </motion.div>
+                )}
+              </motion.div>
+            </div>
           </div>
         </motion.div>
       </AnimatePresence>
