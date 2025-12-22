@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, AlertCircle, Globe, ChevronDown, Clock, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Globe, ChevronDown, Clock, AlertTriangle, ShieldAlert, ArrowLeft } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAdmin } from '../../context/AdminContext';
 import { Language } from '../../types';
@@ -118,6 +118,18 @@ export default function AdminLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4">
+      <motion.button
+        onClick={() => navigate('/')}
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        whileHover={{ scale: 1.05, x: 5 }}
+        whileTap={{ scale: 0.95 }}
+        className="fixed top-4 left-4 z-50 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-lg font-medium shadow-lg shadow-orange-500/20 hover:shadow-orange-500/40 transition-all"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        <span className="text-sm">{t.admin.backToWebsite}</span>
+      </motion.button>
+
       <div className="absolute top-4 right-4" ref={langMenuRef}>
         <button
           onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}

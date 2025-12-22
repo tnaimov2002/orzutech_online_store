@@ -113,6 +113,7 @@ export const translations = {
     admin: {
       login: 'Admin kirish',
       staffOnlyWarning: 'Bu sahifa faqat ORZUTECH xodimlari uchun!',
+      backToWebsite: 'Saytga qaytish',
       email: 'Email',
       password: 'Parol',
       signIn: 'Kirish',
@@ -405,6 +406,7 @@ export const translations = {
     admin: {
       login: 'Вход в панель администратора',
       staffOnlyWarning: 'Эта страница предназначена только для сотрудников ORZUTECH!',
+      backToWebsite: 'На сайт',
       email: 'Email',
       password: 'Пароль',
       signIn: 'Войти',
@@ -697,6 +699,7 @@ export const translations = {
     admin: {
       login: 'Admin Login',
       staffOnlyWarning: 'This page is intended for ORZUTECH staff only!',
+      backToWebsite: 'Back to Website',
       email: 'Email',
       password: 'Password',
       signIn: 'Sign In',
