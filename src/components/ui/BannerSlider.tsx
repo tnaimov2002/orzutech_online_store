@@ -66,34 +66,34 @@ export default function BannerSlider() {
           </div>
 
           <div className="relative h-full flex items-center justify-center md:justify-start">
-            <div className="w-full max-w-7xl mx-auto px-4 flex justify-center md:justify-start md:pl-[15%] lg:pl-[20%]">
+            <div className="w-full max-w-7xl mx-auto px-6 sm:px-8 flex justify-center md:justify-start md:pl-[8%] lg:pl-[12%]">
               <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.4, delay: 0.2 }}
+                initial={{ opacity: 0, x: -15 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
                 className="max-w-xl text-white text-center md:text-left"
               >
                 <motion.h2
-                  initial={{ opacity: 0, y: 30 }}
+                  initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: 0.3 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
                   className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 leading-tight"
                 >
                   {getLocalizedField(currentBanner, 'title')}
                 </motion.h2>
                 <motion.p
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.5 }}
+                  transition={{ duration: 0.45, delay: 0.45 }}
                   className="text-base sm:text-lg md:text-xl text-white/80 mb-8"
                 >
                   {getLocalizedField(currentBanner, 'subtitle')}
                 </motion.p>
                 {currentBanner.link_url && (
                   <motion.div
-                    initial={{ opacity: 0, y: 20 }}
+                    initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.7 }}
+                    transition={{ duration: 0.4, delay: 0.6 }}
                   >
                     <Link to={currentBanner.link_url}>
                       <motion.button
