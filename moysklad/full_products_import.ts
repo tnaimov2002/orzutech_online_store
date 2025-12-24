@@ -129,7 +129,6 @@ async function syncProducts() {
         p?.salePrices,
       ),
       image: p.images?.rows ?? [],
-      last_synced_at: new Date(),
     }));
 
     await upsertBatch(payload, page);
@@ -192,9 +191,7 @@ async function syncStocks() {
 
   const parseStart = Date.now();
   const data = await res.json();
-  console.log(
-    `[MOYSKLAD] Stock JSON parsed (${Date.now() - parseStart} ms)`,
-  );
+  console.log(`[MOYSKLAD] Stock JSON parsed (${Date.now() - parseStart} ms)`);
 
   const rows = Array.isArray(data)
     ? data
@@ -224,9 +221,7 @@ async function syncStocks() {
     throw new Error(`DB stock update error: ${error.message}`);
   }
 
-  console.log(
-    `[SUCCESS] Stock sync complete (${Date.now() - updateStart} ms)`,
-  );
+  console.log(`[SUCCESS] Stock sync complete (${Date.now() - updateStart} ms)`);
 }
 
 let productError = null;
@@ -241,8 +236,7 @@ try {
 try {
   await syncStocks();
 } catch (error) {
-  const stockError =
-    error instanceof Error ? error : new Error(String(error));
+  const stockError = error instanceof Error ? error : new Error(String(error));
   console.error("[STOCK] Sync failed:", stockError);
   throw stockError;
 }
