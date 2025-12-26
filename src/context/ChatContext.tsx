@@ -10,10 +10,13 @@ import {
   getSessionMessages,
   hasOnlineOperators,
   subscribeToMessages,
+  subscribeToSession,
   markMessagesAsRead,
   updateSessionInfo,
   sendOfflineNotification,
   getAIResponse,
+  requestOperatorHandoff,
+  resumeAIMode,
 } from '../services/chatService';
 
 interface ProductContext {
@@ -36,12 +39,16 @@ interface ChatContextValue {
   isOnline: boolean;
   isAIMode: boolean;
   isAITyping: boolean;
+  isHandoffPending: boolean;
+  isConnectedToOperator: boolean;
   unreadCount: number;
   productContext: ProductContext | null;
   setProductContext: (context: ProductContext | null) => void;
   sendUserMessage: (content: string) => Promise<void>;
   submitOfflineForm: (name: string, email: string, message: string) => Promise<boolean>;
   initializeChat: () => Promise<void>;
+  requestOperator: () => Promise<{ success: boolean; operatorAvailable: boolean }>;
+  resumeAI: () => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -70,6 +77,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [isOnline, setIsOnline] = useState(false);
   const [isAIMode, setIsAIMode] = useState(false);
   const [isAITyping, setIsAITyping] = useState(false);
+  const [isHandoffPending, setIsHandoffPending] = useState(false);
+  const [isConnectedToOperator, setIsConnectedToOperator] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [productContext, setProductContext] = useState<ProductContext | null>(null);
   const [hasGreeted, setHasGreeted] = useState(false);
@@ -153,6 +162,23 @@ export function ChatProvider({ children }: ChatProviderProps) {
   }, [session, isOpen]);
 
   useEffect(() => {
+    if (!session) return;
+
+    const unsubscribe = subscribeToSession(session.id, (updatedSession) => {
+      setSession(updatedSession);
+      if (updatedSession.assigned_operator_id && updatedSession.ai_disabled) {
+        setIsConnectedToOperator(true);
+        setIsHandoffPending(false);
+        setIsAIMode(false);
+      } else if (!updatedSession.ai_disabled) {
+        setIsConnectedToOperator(false);
+      }
+    });
+
+    return unsubscribe;
+  }, [session?.id]);
+
+  useEffect(() => {
     if (isOpen && session && unreadCount > 0) {
       markMessagesAsRead(session.id, 'visitor');
       setUnreadCount(0);
@@ -179,6 +205,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
     if (!userMsg) {
       console.error('Failed to send user message');
+      return;
+    }
+
+    if (session.ai_disabled || isConnectedToOperator) {
       return;
     }
 
@@ -253,7 +283,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         );
       }
     }
-  }, [session, productContext, language]);
+  }, [session, productContext, language, isConnectedToOperator]);
 
   const submitOfflineForm = useCallback(async (
     name: string,
@@ -275,6 +305,86 @@ export function ChatProvider({ children }: ChatProviderProps) {
     return success;
   }, [session]);
 
+  const requestOperator = useCallback(async (): Promise<{ success: boolean; operatorAvailable: boolean }> => {
+    if (!session) return { success: false, operatorAvailable: false };
+
+    setIsHandoffPending(true);
+
+    const handoffMessages = {
+      uz: "Operator bilan bog'lanish so'rovi yuborildi. Iltimos, kuting...",
+      ru: "Запрос на связь с оператором отправлен. Пожалуйста, подождите...",
+      en: "Request to connect with operator sent. Please wait..."
+    };
+
+    await sendMessage(
+      session.id,
+      handoffMessages[language as keyof typeof handoffMessages] || handoffMessages.uz,
+      'system',
+      'system',
+      'System'
+    );
+
+    const result = await requestOperatorHandoff(session.id);
+
+    if (result.success) {
+      if (result.operatorAvailable) {
+        const connectedMessages = {
+          uz: `Operator ${result.operatorName || ''} ulanmoqda. Tez orada javob olasiz.`,
+          ru: `Оператор ${result.operatorName || ''} подключается. Скоро получите ответ.`,
+          en: `Operator ${result.operatorName || ''} is connecting. You will receive a response soon.`
+        };
+        await sendMessage(
+          session.id,
+          connectedMessages[language as keyof typeof connectedMessages] || connectedMessages.uz,
+          'system',
+          'system',
+          'System'
+        );
+        setIsConnectedToOperator(true);
+        setIsAIMode(false);
+      } else {
+        const noOperatorMessages = {
+          uz: "Hozir operatorlar band. Xabaringizni qoldiring, tez orada bog'lanamiz.",
+          ru: "Сейчас операторы заняты. Оставьте сообщение, мы скоро свяжемся с вами.",
+          en: "Operators are currently busy. Leave a message and we will contact you soon."
+        };
+        await sendMessage(
+          session.id,
+          noOperatorMessages[language as keyof typeof noOperatorMessages] || noOperatorMessages.uz,
+          'system',
+          'system',
+          'System'
+        );
+      }
+      setIsHandoffPending(false);
+    } else {
+      setIsHandoffPending(false);
+    }
+
+    return { success: result.success, operatorAvailable: result.operatorAvailable };
+  }, [session, language]);
+
+  const resumeAI = useCallback(async (): Promise<void> => {
+    if (!session) return;
+
+    await resumeAIMode(session.id);
+    setIsConnectedToOperator(false);
+    setIsAIMode(true);
+
+    const resumeMessages = {
+      uz: "AI yordamchi qayta faollashtirildi. Sizga qanday yordam bera olaman?",
+      ru: "AI-помощник снова активен. Чем могу помочь?",
+      en: "AI assistant is active again. How can I help you?"
+    };
+    await sendMessage(
+      session.id,
+      resumeMessages[language as keyof typeof resumeMessages] || resumeMessages.uz,
+      'bot',
+      'ai',
+      'ORZUTECH AI'
+    );
+  }, [session, language]);
+
   const value: ChatContextValue = {
     isOpen,
     setIsOpen,
@@ -286,12 +396,16 @@ export function ChatProvider({ children }: ChatProviderProps) {
     isOnline,
     isAIMode,
     isAITyping,
+    isHandoffPending,
+    isConnectedToOperator,
     unreadCount,
     productContext,
     setProductContext,
     sendUserMessage,
     submitOfflineForm,
     initializeChat,
+    requestOperator,
+    resumeAI,
   };
 
   return (

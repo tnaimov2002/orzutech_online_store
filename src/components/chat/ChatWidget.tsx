@@ -7,13 +7,13 @@ import {
   Send,
   Minus,
   User,
-  Bot,
   Loader2,
   Mail,
   ChevronRight,
   ShoppingBag,
   ExternalLink,
   Sparkles,
+  Headphones,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useChatContext } from '../../context/ChatContext';
@@ -31,11 +31,14 @@ export default function ChatWidget() {
     isOnline,
     isAIMode,
     isAITyping,
+    isHandoffPending,
+    isConnectedToOperator,
     unreadCount,
     productContext,
     sendUserMessage,
     submitOfflineForm,
     initializeChat,
+    requestOperator,
     session,
   } = useChatContext();
 
@@ -68,6 +71,17 @@ export default function ChatWidget() {
     willContact: language === 'uz' ? "Tez orada siz bilan bog'lanamiz" : language === 'ru' ? 'Мы скоро свяжемся с вами' : 'We will contact you soon',
     viewingProduct: language === 'uz' ? "Ko'rayotgan mahsulot" : language === 'ru' ? 'Просматриваемый товар' : 'Viewing product',
     buyNow: language === 'uz' ? 'Sotib olish' : language === 'ru' ? 'Купить' : 'Buy Now',
+    connectToOperator: language === 'uz' ? 'Operatorga ulash' : language === 'ru' ? 'Связаться с оператором' : 'Connect to operator',
+    connectedToOperator: language === 'uz' ? 'Operator bilan ulangan' : language === 'ru' ? 'Связь с оператором' : 'Connected to operator',
+    connecting: language === 'uz' ? 'Ulanmoqda...' : language === 'ru' ? 'Подключение...' : 'Connecting...',
+  };
+
+  const handleConnectToOperator = async () => {
+    if (isHandoffPending || isConnectedToOperator) return;
+    const result = await requestOperator();
+    if (!result.operatorAvailable) {
+      setShowOfflineForm(true);
+    }
   };
 
   useEffect(() => {
@@ -189,17 +203,17 @@ export default function ChatWidget() {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             className="w-[380px] h-[560px] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col"
           >
-            <div className="bg-gradient-to-r from-orange-500 to-orange-600 p-4 text-white">
+            <div className={`p-4 text-white ${isConnectedToOperator ? 'bg-gradient-to-r from-green-500 to-green-600' : 'bg-gradient-to-r from-orange-500 to-orange-600'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                    {isAIMode ? <Sparkles className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
+                    {isConnectedToOperator ? <Headphones className="w-5 h-5" /> : isAIMode ? <Sparkles className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
                   </div>
                   <div>
                     <h3 className="font-bold">{labels.title}</h3>
                     <div className="flex items-center gap-1.5 text-sm text-white/90">
-                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : isAIMode ? 'bg-blue-400' : 'bg-gray-300'}`} />
-                      {isOnline ? labels.online : isAIMode ? labels.aiMode : labels.offline}
+                      <span className={`w-2 h-2 rounded-full ${isConnectedToOperator ? 'bg-green-300' : isOnline ? 'bg-green-400' : isAIMode ? 'bg-blue-400' : 'bg-gray-300'}`} />
+                      {isConnectedToOperator ? labels.connectedToOperator : isOnline ? labels.online : isAIMode ? labels.aiMode : labels.offline}
                     </div>
                   </div>
                 </div>
@@ -406,27 +420,44 @@ export default function ChatWidget() {
             </AnimatePresence>
 
             {!showOfflineForm && !offlineSubmitted && (
-              <form onSubmit={handleSendMessage} className="p-3 border-t border-gray-200 bg-white">
-                <div className="flex items-center gap-2">
+              <div className="p-3 border-t border-gray-200 bg-white space-y-2">
+                {isAIMode && !isConnectedToOperator && !isHandoffPending && messages.length > 0 && (
+                  <motion.button
+                    onClick={handleConnectToOperator}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full py-2 px-4 bg-gradient-to-r from-orange-100 to-orange-50 border border-orange-200 rounded-xl flex items-center justify-center gap-2 text-orange-600 hover:from-orange-200 hover:to-orange-100 transition-all text-sm font-medium"
+                  >
+                    <Headphones className="w-4 h-4" />
+                    {labels.connectToOperator}
+                  </motion.button>
+                )}
+                {isHandoffPending && (
+                  <div className="w-full py-2 px-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center justify-center gap-2 text-orange-600 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {labels.connecting}
+                  </div>
+                )}
+                <form onSubmit={handleSendMessage} className="flex items-center gap-2">
                   <input
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     placeholder={labels.placeholder}
                     className="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/30 text-sm"
-                    disabled={isAITyping}
+                    disabled={isAITyping || isHandoffPending}
                   />
                   <motion.button
                     type="submit"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    disabled={!inputValue.trim() || isAITyping}
-                    className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/30"
+                    disabled={!inputValue.trim() || isAITyping || isHandoffPending}
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${isConnectedToOperator ? 'bg-gradient-to-br from-green-500 to-green-600 shadow-green-500/30' : 'bg-gradient-to-br from-orange-500 to-orange-600 shadow-orange-500/30'}`}
                   >
                     <Send className="w-5 h-5" />
                   </motion.button>
-                </div>
-              </form>
+                </form>
+              </div>
             )}
           </motion.div>
         )}

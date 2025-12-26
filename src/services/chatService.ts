@@ -17,6 +17,9 @@ export interface ChatSession {
   last_message_at: string;
   created_at: string;
   closed_at: string | null;
+  handoff_requested: boolean;
+  handoff_requested_at: string | null;
+  ai_disabled: boolean;
 }
 
 export interface ChatMessage {
@@ -498,4 +501,85 @@ export async function deleteFAQ(faqId: string): Promise<void> {
     .from('ai_faq')
     .delete()
     .eq('id', faqId);
+}
+
+export async function requestOperatorHandoff(sessionId: string): Promise<{
+  success: boolean;
+  operatorAvailable: boolean;
+  operatorName?: string;
+}> {
+  const operators = await getOnlineOperators();
+  const operatorAvailable = operators.length > 0;
+
+  const { error } = await supabase
+    .from('chat_sessions')
+    .update({
+      handoff_requested: true,
+      handoff_requested_at: new Date().toISOString(),
+      ai_disabled: true,
+      status: operatorAvailable ? 'active' : 'waiting',
+      assigned_operator_id: operatorAvailable ? operators[0].id : null,
+    })
+    .eq('id', sessionId);
+
+  if (error) {
+    console.error('Error requesting handoff:', error);
+    return { success: false, operatorAvailable: false };
+  }
+
+  return {
+    success: true,
+    operatorAvailable,
+    operatorName: operatorAvailable ? operators[0].display_name : undefined,
+  };
+}
+
+export async function resumeAIMode(sessionId: string): Promise<void> {
+  await supabase
+    .from('chat_sessions')
+    .update({
+      ai_disabled: false,
+      handoff_requested: false,
+    })
+    .eq('id', sessionId);
+}
+
+export async function getSessionById(sessionId: string): Promise<ChatSession | null> {
+  const { data, error } = await supabase
+    .from('chat_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching session:', error);
+    return null;
+  }
+
+  return data;
+}
+
+export function subscribeToSession(
+  sessionId: string,
+  callback: (session: ChatSession) => void
+) {
+  const channel = supabase
+    .channel(`session:${sessionId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chat_sessions',
+        filter: `id=eq.${sessionId}`,
+      },
+      (payload) => {
+        callback(payload.new as ChatSession);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

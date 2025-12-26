@@ -4,18 +4,16 @@ import {
   MessageCircle,
   Send,
   User,
-  Clock,
   Check,
   CheckCheck,
   Search,
-  Filter,
-  MoreVertical,
   ExternalLink,
   Package,
-  X,
   Zap,
   ShoppingBag,
   Globe,
+  Headphones,
+  AlertCircle,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { formatPrice } from '../../utils/format';
@@ -224,6 +222,7 @@ export default function LiveChat() {
   });
 
   const waitingCount = sessions.filter((s) => s.status === 'waiting').length;
+  const handoffCount = sessions.filter((s) => s.handoff_requested && s.status !== 'closed').length;
 
   return (
     <div className="h-[calc(100vh-4rem)] flex">
@@ -236,6 +235,12 @@ export default function LiveChat() {
               {waitingCount > 0 && (
                 <span className="px-2 py-0.5 bg-orange-500 text-white text-xs rounded-full">
                   {waitingCount}
+                </span>
+              )}
+              {handoffCount > 0 && (
+                <span className="px-2 py-0.5 bg-red-500 text-white text-xs rounded-full flex items-center gap-1">
+                  <Headphones className="w-3 h-3" />
+                  {handoffCount}
                 </span>
               )}
             </h2>
@@ -306,9 +311,16 @@ export default function LiveChat() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(session.status)}`}>
-                          {getStatusLabel(session.status)}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(session.status)}`}>
+                            {getStatusLabel(session.status)}
+                          </span>
+                          {session.handoff_requested && session.status !== 'closed' && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 flex items-center gap-1">
+                              <Headphones className="w-3 h-3" />
+                            </span>
+                          )}
+                        </div>
                         {session.unread_count > 0 && (
                           <span className="w-5 h-5 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center">
                             {session.unread_count}
@@ -376,6 +388,22 @@ export default function LiveChat() {
                   )}
                 </div>
               </div>
+
+              {selectedSession.handoff_requested && selectedSession.status !== 'closed' && (
+                <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="w-4 h-4" />
+                    <p className="text-sm font-medium">
+                      {language === 'uz' ? "Foydalanuvchi operator bilan bog'lanishni so'radi" : language === 'ru' ? 'Пользователь запросил связь с оператором' : 'User requested operator connection'}
+                    </p>
+                  </div>
+                  {selectedSession.handoff_requested_at && (
+                    <p className="text-xs text-red-500 mt-1 ml-6">
+                      {new Date(selectedSession.handoff_requested_at).toLocaleString(language === 'ru' ? 'ru-RU' : 'uz-UZ')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {selectedSession.product_id && selectedSession.product_context && (
                 <div className="mt-3 p-2 bg-orange-50 rounded-lg">
