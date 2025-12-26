@@ -13,6 +13,7 @@ import {
   markMessagesAsRead,
   updateSessionInfo,
   sendOfflineNotification,
+  getAIResponse,
 } from '../services/chatService';
 
 interface ProductContext {
@@ -33,6 +34,8 @@ interface ChatContextValue {
   messages: ChatMessage[];
   isLoading: boolean;
   isOnline: boolean;
+  isAIMode: boolean;
+  isAITyping: boolean;
   unreadCount: number;
   productContext: ProductContext | null;
   setProductContext: (context: ProductContext | null) => void;
@@ -65,6 +68,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  const [isAIMode, setIsAIMode] = useState(false);
+  const [isAITyping, setIsAITyping] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [productContext, setProductContext] = useState<ProductContext | null>(null);
   const [hasGreeted, setHasGreeted] = useState(false);
@@ -73,6 +78,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const checkOperators = async () => {
       const online = await hasOnlineOperators();
       setIsOnline(online);
+      setIsAIMode(!online);
     };
     checkOperators();
     const interval = setInterval(checkOperators, 30000);
@@ -102,17 +108,26 @@ export function ChatProvider({ children }: ChatProviderProps) {
       setMessages(existingMessages);
 
       if (existingMessages.length === 0 && !hasGreeted) {
+        const operatorsOnline = await hasOnlineOperators();
+
         const greetings = {
-          uz: "Salom! ORZUTECH qo'llab-quvvatlash xizmati. Sizga qanday yordam bera olamiz?",
-          ru: 'Здравствуйте! Служба поддержки ORZUTECH. Чем можем помочь?',
-          en: 'Hello! ORZUTECH support service. How can we help you?',
+          uz: operatorsOnline
+            ? "Salom! ORZUTECH qo'llab-quvvatlash xizmati. Sizga qanday yordam bera olamiz?"
+            : "Salom! Men ORZUTECH sun'iy intellekt yordamchisiman. Hozir operatorlar band. Sizga qanday yordam bera olaman?",
+          ru: operatorsOnline
+            ? 'Здравствуйте! Служба поддержки ORZUTECH. Чем можем помочь?'
+            : 'Здравствуйте! Я AI-помощник ORZUTECH. Сейчас операторы заняты. Чем могу помочь?',
+          en: operatorsOnline
+            ? 'Hello! ORZUTECH support service. How can we help you?'
+            : 'Hello! I am ORZUTECH AI assistant. Operators are currently busy. How can I help you?',
         };
+
         await sendMessage(
           newSession.id,
           greetings[language as keyof typeof greetings] || greetings.uz,
-          'system',
-          'system',
-          'ORZUTECH'
+          operatorsOnline ? 'system' : 'bot',
+          operatorsOnline ? 'system' : 'ai',
+          operatorsOnline ? 'ORZUTECH' : 'ORZUTECH AI'
         );
         setHasGreeted(true);
       }
@@ -129,7 +144,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         return [...prev, newMessage];
       });
 
-      if (newMessage.sender_type === 'operator' && !isOpen) {
+      if ((newMessage.sender_type === 'operator' || newMessage.sender_type === 'bot') && !isOpen) {
         setUnreadCount((prev) => prev + 1);
       }
     });
@@ -161,7 +176,36 @@ export function ChatProvider({ children }: ChatProviderProps) {
       visitorId,
       session.visitor_name || undefined
     );
-  }, [session]);
+
+    const operatorsOnline = await hasOnlineOperators();
+
+    if (!operatorsOnline) {
+      setIsAITyping(true);
+
+      const aiResponse = await getAIResponse(
+        session.id,
+        content,
+        productContext ? {
+          id: productContext.id,
+          name: productContext.name,
+          price: productContext.price,
+          category: productContext.category,
+        } : undefined
+      );
+
+      setIsAITyping(false);
+
+      if (aiResponse?.success && aiResponse.response) {
+        await sendMessage(
+          session.id,
+          aiResponse.response,
+          'bot',
+          'ai',
+          'ORZUTECH AI'
+        );
+      }
+    }
+  }, [session, productContext]);
 
   const submitOfflineForm = useCallback(async (
     name: string,
@@ -192,6 +236,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     messages,
     isLoading,
     isOnline,
+    isAIMode,
+    isAITyping,
     unreadCount,
     productContext,
     setProductContext,

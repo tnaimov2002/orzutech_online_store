@@ -28,6 +28,7 @@ import Banners from './pages/admin/Banners';
 import Stores from './pages/admin/Stores';
 import DeliverySettings from './pages/admin/DeliverySettings';
 import LiveChat from './pages/admin/LiveChat';
+import AIManagement from './pages/admin/AIManagement';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -145,6 +146,7 @@ function App() {
                   <Route path="stores" element={<Stores />} />
                   <Route path="delivery" element={<DeliverySettings />} />
                   <Route path="chat" element={<LiveChat />} />
+                  <Route path="ai" element={<AIManagement />} />
                 </Route>
 
                 <Route path="*" element={<Navigate to="/" replace />} />

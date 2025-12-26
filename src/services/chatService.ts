@@ -386,3 +386,116 @@ export async function sendOfflineNotification(
     return false;
   }
 }
+
+export interface AIResponse {
+  success: boolean;
+  response: string;
+  language: 'uz' | 'ru' | 'en';
+  script: 'latin' | 'cyrillic' | null;
+  sources: string[];
+}
+
+export async function getAIResponse(
+  sessionId: string,
+  message: string,
+  productContext?: { id: string; name: string; price?: number; category?: string }
+): Promise<AIResponse | null> {
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId,
+          message,
+          productContext,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error('AI response error:', response.status);
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting AI response:', error);
+    return null;
+  }
+}
+
+export async function getAIFAQs(): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('ai_faq')
+    .select('*')
+    .order('priority', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching AI FAQs:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function getAIAnswerHistory(limit = 50): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('ai_answer_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Error fetching AI answer history:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+export async function approveAIAnswer(answerId: string, editedResponse?: string): Promise<void> {
+  await supabase
+    .from('ai_answer_history')
+    .update({
+      is_approved: true,
+      admin_edited_response: editedResponse,
+    })
+    .eq('id', answerId);
+}
+
+export async function createOrUpdateFAQ(faq: {
+  id?: string;
+  question_patterns: string[];
+  question_uz: string;
+  question_ru: string;
+  question_en: string;
+  answer_uz: string;
+  answer_ru: string;
+  answer_en: string;
+  category?: string;
+  priority?: number;
+  is_active?: boolean;
+}): Promise<void> {
+  if (faq.id) {
+    await supabase
+      .from('ai_faq')
+      .update(faq)
+      .eq('id', faq.id);
+  } else {
+    await supabase
+      .from('ai_faq')
+      .insert(faq);
+  }
+}
+
+export async function deleteFAQ(faqId: string): Promise<void> {
+  await supabase
+    .from('ai_faq')
+    .delete()
+    .eq('id', faqId);
+}

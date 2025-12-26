@@ -10,10 +10,10 @@ import {
   Bot,
   Loader2,
   Mail,
-  Phone,
   ChevronRight,
   ShoppingBag,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useChatContext } from '../../context/ChatContext';
@@ -29,6 +29,8 @@ export default function ChatWidget() {
     messages,
     isLoading,
     isOnline,
+    isAIMode,
+    isAITyping,
     unreadCount,
     productContext,
     sendUserMessage,
@@ -52,6 +54,8 @@ export default function ChatWidget() {
     title: language === 'uz' ? 'ORZUTECH Yordam' : language === 'ru' ? 'ORZUTECH Поддержка' : 'ORZUTECH Support',
     online: language === 'uz' ? 'Onlayn' : language === 'ru' ? 'Онлайн' : 'Online',
     offline: language === 'uz' ? 'Oflayn' : language === 'ru' ? 'Офлайн' : 'Offline',
+    aiMode: language === 'uz' ? 'AI Yordamchi' : language === 'ru' ? 'AI Помощник' : 'AI Assistant',
+    aiTyping: language === 'uz' ? 'AI yozmoqda...' : language === 'ru' ? 'AI печатает...' : 'AI is typing...',
     placeholder: language === 'uz' ? 'Xabar yozing...' : language === 'ru' ? 'Напишите сообщение...' : 'Type a message...',
     send: language === 'uz' ? 'Yuborish' : language === 'ru' ? 'Отправить' : 'Send',
     offlineTitle: language === 'uz' ? 'Hozir operatorlar band' : language === 'ru' ? 'Операторы сейчас заняты' : 'Operators are currently busy',
@@ -70,7 +74,7 @@ export default function ChatWidget() {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, isAITyping]);
 
   const handleOpen = async () => {
     setIsOpen(true);
@@ -90,13 +94,6 @@ export default function ChatWidget() {
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
-
-    if (!isOnline && !session?.visitor_email) {
-      setShowOfflineForm(true);
-      setOfflineFormData((prev) => ({ ...prev, message: inputValue }));
-      setInputValue('');
-      return;
-    }
 
     await sendUserMessage(inputValue);
     setInputValue('');
@@ -142,7 +139,11 @@ export default function ChatWidget() {
             onClick={handleOpen}
             className="relative w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full shadow-lg shadow-orange-500/40 flex items-center justify-center text-white hover:shadow-xl hover:shadow-orange-500/50 transition-shadow"
           >
-            <MessageCircle className="w-7 h-7" />
+            {isAIMode ? (
+              <Sparkles className="w-7 h-7" />
+            ) : (
+              <MessageCircle className="w-7 h-7" />
+            )}
             {unreadCount > 0 && (
               <motion.span
                 initial={{ scale: 0 }}
@@ -153,8 +154,8 @@ export default function ChatWidget() {
               </motion.span>
             )}
             <span className="absolute -top-1 -right-1 w-3 h-3">
-              <span className={`absolute inset-0 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-400'} animate-ping`} />
-              <span className={`absolute inset-0 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-500'}`} />
+              <span className={`absolute inset-0 rounded-full ${isOnline ? 'bg-green-400' : isAIMode ? 'bg-blue-400' : 'bg-gray-400'} animate-ping`} />
+              <span className={`absolute inset-0 rounded-full ${isOnline ? 'bg-green-500' : isAIMode ? 'bg-blue-500' : 'bg-gray-500'}`} />
             </span>
           </motion.button>
         ) : isMinimized ? (
@@ -169,7 +170,7 @@ export default function ChatWidget() {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <MessageCircle className="w-5 h-5" />
+                {isAIMode ? <Sparkles className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
                 <span className="font-semibold">{labels.title}</span>
               </div>
               {unreadCount > 0 && (
@@ -192,13 +193,13 @@ export default function ChatWidget() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-                    <MessageCircle className="w-5 h-5" />
+                    {isAIMode ? <Sparkles className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
                   </div>
                   <div>
                     <h3 className="font-bold">{labels.title}</h3>
                     <div className="flex items-center gap-1.5 text-sm text-white/90">
-                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : 'bg-gray-300'}`} />
-                      {isOnline ? labels.online : labels.offline}
+                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-400' : isAIMode ? 'bg-blue-400' : 'bg-gray-300'}`} />
+                      {isOnline ? labels.online : isAIMode ? labels.aiMode : labels.offline}
                     </div>
                   </div>
                 </div>
@@ -257,17 +258,25 @@ export default function ChatWidget() {
                       transition={{ delay: index * 0.05 }}
                       className={`flex ${message.sender_type === 'visitor' ? 'justify-end' : 'justify-start'}`}
                     >
+                      {message.sender_type === 'bot' && (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mr-2 flex-shrink-0">
+                          <Sparkles className="w-4 h-4 text-white" />
+                        </div>
+                      )}
                       <div
-                        className={`max-w-[80%] ${
+                        className={`max-w-[75%] ${
                           message.sender_type === 'visitor'
                             ? 'bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-2xl rounded-br-md'
-                            : message.sender_type === 'system'
-                              ? 'bg-gray-200 text-gray-700 rounded-2xl rounded-bl-md'
-                              : 'bg-white text-gray-900 rounded-2xl rounded-bl-md shadow-sm border border-gray-100'
+                            : message.sender_type === 'bot'
+                              ? 'bg-gradient-to-br from-blue-50 to-blue-100 text-gray-900 rounded-2xl rounded-bl-md border border-blue-200'
+                              : message.sender_type === 'system'
+                                ? 'bg-gray-200 text-gray-700 rounded-2xl rounded-bl-md'
+                                : 'bg-white text-gray-900 rounded-2xl rounded-bl-md shadow-sm border border-gray-100'
                         } px-4 py-2.5`}
                       >
                         {message.sender_type !== 'visitor' && message.sender_name && (
-                          <p className="text-xs font-semibold mb-1 opacity-70">
+                          <p className={`text-xs font-semibold mb-1 ${message.sender_type === 'bot' ? 'text-blue-600' : 'opacity-70'}`}>
+                            {message.sender_type === 'bot' && <Sparkles className="w-3 h-3 inline mr-1" />}
                             {message.sender_name}
                           </p>
                         )}
@@ -285,13 +294,35 @@ export default function ChatWidget() {
                         )}
 
                         <p className={`text-[10px] mt-1 ${
-                          message.sender_type === 'visitor' ? 'text-white/70' : 'text-gray-400'
+                          message.sender_type === 'visitor' ? 'text-white/70' : message.sender_type === 'bot' ? 'text-blue-400' : 'text-gray-400'
                         }`}>
                           {formatTime(message.created_at)}
                         </p>
                       </div>
                     </motion.div>
                   ))}
+
+                  {isAITyping && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex justify-start"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mr-2 flex-shrink-0">
+                        <Sparkles className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 text-gray-700 rounded-2xl rounded-bl-md border border-blue-200 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-1">
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                          <span className="text-xs text-blue-500">{labels.aiTyping}</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
 
                   {offlineSubmitted && (
                     <motion.div
@@ -383,12 +414,13 @@ export default function ChatWidget() {
                     onChange={(e) => setInputValue(e.target.value)}
                     placeholder={labels.placeholder}
                     className="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/30 text-sm"
+                    disabled={isAITyping}
                   />
                   <motion.button
                     type="submit"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    disabled={!inputValue.trim()}
+                    disabled={!inputValue.trim() || isAITyping}
                     className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl flex items-center justify-center text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/30"
                   >
                     <Send className="w-5 h-5" />

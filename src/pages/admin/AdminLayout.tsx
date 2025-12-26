@@ -14,7 +14,8 @@ import {
   Menu,
   Globe,
   ChevronDown,
-  MessageCircle
+  MessageCircle,
+  Sparkles
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAdmin } from '../../context/AdminContext';
@@ -66,6 +67,7 @@ export default function AdminLayout() {
     { path: '/admin', icon: LayoutDashboard, label: t.admin.dashboard, exact: true },
     { path: '/admin/orders', icon: ShoppingCart, label: t.admin.orders },
     { path: '/admin/chat', icon: MessageCircle, label: language === 'uz' ? 'Chat' : language === 'ru' ? 'Чат' : 'Chat' },
+    { path: '/admin/ai', icon: Sparkles, label: language === 'uz' ? 'AI Boshqaruvi' : language === 'ru' ? 'AI Управление' : 'AI Management' },
     { path: '/admin/products', icon: Package, label: t.admin.products },
     { path: '/admin/categories', icon: FolderTree, label: t.admin.categories },
     { path: '/admin/customers', icon: Users, label: t.admin.customers },
