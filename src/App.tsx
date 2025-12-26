@@ -24,6 +24,7 @@ import Categories from './pages/admin/Categories';
 import Customers from './pages/admin/Customers';
 import Banners from './pages/admin/Banners';
 import Stores from './pages/admin/Stores';
+import DeliverySettings from './pages/admin/DeliverySettings';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -137,6 +138,7 @@ function App() {
                 <Route path="customers" element={<Customers />} />
                 <Route path="banners" element={<Banners />} />
                 <Route path="stores" element={<Stores />} />
+                <Route path="delivery" element={<DeliverySettings />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

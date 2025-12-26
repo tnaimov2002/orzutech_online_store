@@ -9,10 +9,9 @@ import {
   FolderTree,
   Image,
   Store,
-  Settings,
+  Truck,
   LogOut,
   Menu,
-  X,
   Globe,
   ChevronDown
 } from 'lucide-react';
@@ -70,6 +69,7 @@ export default function AdminLayout() {
     { path: '/admin/customers', icon: Users, label: t.admin.customers },
     { path: '/admin/banners', icon: Image, label: t.admin.banners },
     { path: '/admin/stores', icon: Store, label: t.admin.stores },
+    { path: '/admin/delivery', icon: Truck, label: language === 'uz' ? 'Yetkazib berish' : language === 'ru' ? 'Доставка' : 'Delivery' },
   ];
 
   const currentLang = languages.find((l) => l.code === language);

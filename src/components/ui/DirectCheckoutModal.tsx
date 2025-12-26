@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,6 +25,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice, generateOrderNumber } from '../../utils/format';
 import { validateEmail, sendOrderConfirmationEmail } from '../../utils/email';
+import AddressSelection, { AddressData } from '../checkout/AddressSelection';
+import { DeliveryInfo } from '../../services/addressService';
 
 interface DirectCheckoutModalProps {
   isOpen: boolean;
@@ -36,11 +38,6 @@ interface DirectCheckoutModalProps {
 
 type DeliveryType = 'delivery' | 'pickup';
 type CheckoutStep = 'form' | 'success';
-
-const regions = [
-  'Buxoro', 'Toshkent', 'Samarqand', "Farg'ona", 'Andijon', 'Namangan',
-  'Qashqadaryo', 'Surxondaryo', 'Navoiy', 'Xorazm', 'Jizzax', 'Sirdaryo', "Qoraqalpog'iston"
-];
 
 interface OrderResult {
   id: string;
@@ -68,14 +65,14 @@ export default function DirectCheckoutModal({
   const [submitting, setSubmitting] = useState(false);
   const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
 
+  const [addressData, setAddressData] = useState<AddressData | null>(null);
+  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     phone: '',
     email: '',
-    region: '',
-    city: '',
-    address: '',
     notes: '',
   });
 
@@ -112,7 +109,7 @@ export default function DirectCheckoutModal({
     setLoading(false);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
@@ -120,37 +117,29 @@ export default function DirectCheckoutModal({
     }
   };
 
+  const handleAddressChange = useCallback((address: AddressData, delivery: DeliveryInfo) => {
+    setAddressData(address);
+    setDeliveryInfo(delivery);
+  }, []);
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.firstName.trim()) {
       newErrors.firstName = language === 'uz' ? 'Ism majburiy' : language === 'ru' ? 'Имя обязательно' : 'First name is required';
     }
-
     if (!formData.lastName.trim()) {
       newErrors.lastName = language === 'uz' ? 'Familiya majburiy' : language === 'ru' ? 'Фамилия обязательна' : 'Last name is required';
     }
-
     if (!formData.phone.trim()) {
       newErrors.phone = language === 'uz' ? 'Telefon raqam majburiy' : language === 'ru' ? 'Телефон обязателен' : 'Phone is required';
     }
-
-    if (!formData.email.trim()) {
-      newErrors.email = language === 'uz' ? 'Email majburiy' : language === 'ru' ? 'Email обязателен' : 'Email is required';
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = language === 'uz' ? "To'g'ri email manzilini kiriting" : language === 'ru' ? 'Введите корректный email адрес' : 'Please enter a valid email address';
+    if (formData.email && !validateEmail(formData.email)) {
+      newErrors.email = language === 'uz' ? "To'g'ri email kiriting" : language === 'ru' ? 'Введите корректный email' : 'Enter a valid email';
     }
 
-    if (deliveryType === 'delivery') {
-      if (!formData.region) {
-        newErrors.region = language === 'uz' ? 'Viloyatni tanlang' : language === 'ru' ? 'Выберите область' : 'Select a region';
-      }
-      if (!formData.city.trim()) {
-        newErrors.city = language === 'uz' ? 'Shahar majburiy' : language === 'ru' ? 'Город обязателен' : 'City is required';
-      }
-      if (!formData.address.trim()) {
-        newErrors.address = language === 'uz' ? 'Manzil majburiy' : language === 'ru' ? 'Адрес обязателен' : 'Address is required';
-      }
+    if (deliveryType === 'delivery' && !addressData) {
+      newErrors.address = language === 'uz' ? 'Manzilni to\'liq kiriting' : language === 'ru' ? 'Заполните адрес полностью' : 'Please complete the address';
     }
 
     setErrors(newErrors);
@@ -159,7 +148,6 @@ export default function DirectCheckoutModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validateForm()) return;
 
     setSubmitting(true);
@@ -171,10 +159,10 @@ export default function DirectCheckoutModal({
           first_name: formData.firstName,
           last_name: formData.lastName,
           phone: formData.phone,
-          email: formData.email,
-          region: formData.region || null,
-          city: formData.city || null,
-          address: formData.address || null,
+          email: formData.email || null,
+          region: addressData?.regionName || null,
+          city: addressData?.district || null,
+          address: addressData?.fullAddress || null,
         })
         .select()
         .single();
@@ -182,11 +170,9 @@ export default function DirectCheckoutModal({
       if (customerError) throw customerError;
 
       const orderNumber = generateOrderNumber();
-      const total = product.price * quantity;
-
-      const deliveryAddress = deliveryType === 'delivery'
-        ? `${formData.region}, ${formData.city}, ${formData.address}`
-        : null;
+      const subtotal = product.price * quantity;
+      const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
+      const total = subtotal + deliveryFee;
 
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
@@ -195,11 +181,11 @@ export default function DirectCheckoutModal({
           customer_id: customerData.id,
           status: 'new',
           delivery_type: deliveryType,
-          delivery_address: deliveryAddress,
+          delivery_address: deliveryType === 'delivery' ? addressData?.fullAddress : null,
           store_location_id: deliveryType === 'pickup' ? selectedStore : null,
-          subtotal: total,
-          delivery_fee: 0,
-          total: total,
+          subtotal,
+          delivery_fee: deliveryFee,
+          total,
           notes: formData.notes || null,
           gift_wrapping: false,
         })
@@ -223,7 +209,7 @@ export default function DirectCheckoutModal({
         variant_info: variantInfo,
         quantity: quantity,
         unit_price: product.price,
-        total_price: total,
+        total_price: subtotal,
       });
 
       await supabase
@@ -236,6 +222,9 @@ export default function DirectCheckoutModal({
         .eq('id', customerData.id);
 
       let storeName: string | null = null;
+      let emailSent = false;
+      let emailError: string | undefined;
+
       if (deliveryType === 'pickup' && selectedStore) {
         const store = storeLocations.find(s => s.id === selectedStore);
         if (store) {
@@ -243,33 +232,40 @@ export default function DirectCheckoutModal({
         }
       }
 
-      const emailResult = await sendOrderConfirmationEmail({
-        to: formData.email,
-        customerName: `${formData.firstName} ${formData.lastName}`,
-        orderNumber: orderNumber,
-        orderItems: [{
-          product_name: productName,
-          product_image: productImage,
-          quantity: quantity,
-          unit_price: product.price,
-          total_price: total,
-          variant_info: variantInfo,
-        }],
-        subtotal: total,
-        deliveryFee: 0,
-        total: total,
-        deliveryType: deliveryType,
-        deliveryAddress: deliveryAddress,
-        storeName: storeName,
-        language: language as 'uz' | 'ru' | 'en',
-      });
+      if (formData.email) {
+        const emailResult = await sendOrderConfirmationEmail({
+          to: formData.email,
+          customerName: `${formData.firstName} ${formData.lastName}`,
+          orderNumber: orderNumber,
+          orderItems: [{
+            product_name: productName,
+            product_image: productImage,
+            quantity: quantity,
+            unit_price: product.price,
+            total_price: subtotal,
+            variant_info: variantInfo,
+          }],
+          subtotal,
+          deliveryFee,
+          total,
+          deliveryType: deliveryType,
+          deliveryAddress: addressData?.fullAddress || null,
+          storeName: storeName,
+          language: language as 'uz' | 'ru' | 'en',
+        });
+
+        emailSent = emailResult.success;
+        emailError = emailResult.error;
+      } else {
+        emailSent = true;
+      }
 
       setOrderResult({
         id: orderData.id,
         order_number: orderNumber,
         total: total,
-        emailSent: emailResult.success,
-        emailError: emailResult.error,
+        emailSent,
+        emailError,
       });
 
       setStep('success');
@@ -297,7 +293,9 @@ export default function DirectCheckoutModal({
     navigate('/');
   };
 
-  const total = product.price * quantity;
+  const subtotal = product.price * quantity;
+  const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
+  const total = subtotal + deliveryFee;
   const productImage = product.product_images?.[0]?.image_url
     || 'https://images.pexels.com/photos/404280/pexels-photo-404280.jpeg?auto=compress&cs=tinysrgb&w=400';
 
@@ -359,7 +357,7 @@ export default function DirectCheckoutModal({
                           <div className="flex items-center justify-between mt-2">
                             <span className="text-sm text-gray-500">x{quantity}</span>
                             <span className="font-bold text-orange-500">
-                              {formatPrice(total)} {t.common.sum}
+                              {formatPrice(subtotal)} {t.common.sum}
                             </span>
                           </div>
                         </div>
@@ -448,7 +446,7 @@ export default function DirectCheckoutModal({
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            {t.checkout.email} *
+                            {t.checkout.email} <span className="text-gray-400 font-normal text-xs">({language === 'uz' ? 'ixtiyoriy' : language === 'ru' ? 'необяз.' : 'optional'})</span>
                           </label>
                           <input
                             type="email"
@@ -464,53 +462,13 @@ export default function DirectCheckoutModal({
 
                       {deliveryType === 'delivery' ? (
                         <div className="space-y-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                {t.checkout.region} *
-                              </label>
-                              <select
-                                name="region"
-                                value={formData.region}
-                                onChange={handleInputChange}
-                                className={`w-full px-4 py-2.5 rounded-xl border ${errors.region ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
-                              >
-                                <option value="">
-                                  {language === 'uz' ? 'Tanlang' : language === 'ru' ? 'Выберите' : 'Select'}
-                                </option>
-                                {regions.map((region) => (
-                                  <option key={region} value={region}>{region}</option>
-                                ))}
-                              </select>
-                              {errors.region && <p className="text-red-500 text-xs mt-1">{errors.region}</p>}
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">
-                                {t.checkout.city} *
-                              </label>
-                              <input
-                                type="text"
-                                name="city"
-                                value={formData.city}
-                                onChange={handleInputChange}
-                                className={`w-full px-4 py-2.5 rounded-xl border ${errors.city ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
-                              />
-                              {errors.city && <p className="text-red-500 text-xs mt-1">{errors.city}</p>}
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              {t.checkout.address} *
-                            </label>
-                            <input
-                              type="text"
-                              name="address"
-                              value={formData.address}
-                              onChange={handleInputChange}
-                              className={`w-full px-4 py-2.5 rounded-xl border ${errors.address ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
-                            />
-                            {errors.address && <p className="text-red-500 text-xs mt-1">{errors.address}</p>}
-                          </div>
+                          <AddressSelection
+                            onAddressChange={handleAddressChange}
+                            compact
+                          />
+                          {errors.address && (
+                            <p className="text-red-500 text-sm">{errors.address}</p>
+                          )}
                         </div>
                       ) : (
                         !loading && storeLocations.length > 0 && (
@@ -584,11 +542,35 @@ export default function DirectCheckoutModal({
                     </div>
 
                     <div className="sticky bottom-0 bg-white border-t border-gray-100 p-4">
-                      <div className="flex items-center justify-between mb-4">
-                        <span className="text-gray-600">{t.cart.total}:</span>
-                        <span className="text-2xl font-bold text-orange-500">
-                          {formatPrice(total)} {t.common.sum}
-                        </span>
+                      <div className="space-y-2 mb-4">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-500">{t.cart.subtotal}:</span>
+                          <span className="font-medium">{formatPrice(subtotal)} {t.common.sum}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-500">{t.checkout.deliveryFee}:</span>
+                          {deliveryType === 'pickup' ? (
+                            <span className="font-medium text-green-600">{t.checkout.free}</span>
+                          ) : deliveryInfo?.isFree ? (
+                            <span className="font-medium text-green-600">{t.checkout.free}</span>
+                          ) : (
+                            <span className="font-medium">{formatPrice(deliveryFee)} {t.common.sum}</span>
+                          )}
+                        </div>
+                        {deliveryType === 'delivery' && deliveryInfo && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-500">
+                              {language === 'uz' ? 'Yetkazib berish' : language === 'ru' ? 'Доставка' : 'Delivery'}:
+                            </span>
+                            <span className="font-medium text-orange-600">{deliveryInfo.etaText}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                          <span className="text-gray-900 font-medium">{t.cart.total}:</span>
+                          <span className="text-2xl font-bold text-orange-500">
+                            {formatPrice(total)} {t.common.sum}
+                          </span>
+                        </div>
                       </div>
                       <motion.button
                         whileHover={{ scale: 1.02 }}
@@ -657,7 +639,7 @@ export default function DirectCheckoutModal({
                       {language === 'en' && 'Thank you very much for choosing us!'}
                     </motion.p>
 
-                    {orderResult?.emailSent ? (
+                    {orderResult?.emailSent && formData.email ? (
                       <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -671,7 +653,7 @@ export default function DirectCheckoutModal({
                           {language === 'en' && 'Invoice has been sent to your email'}
                         </span>
                       </motion.div>
-                    ) : (
+                    ) : formData.email && !orderResult?.emailSent ? (
                       <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -685,7 +667,7 @@ export default function DirectCheckoutModal({
                           {language === 'en' && 'Order placed, but email delivery failed. Our team will contact you.'}
                         </span>
                       </motion.div>
-                    )}
+                    ) : null}
 
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
