@@ -169,7 +169,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     if (!session || !content.trim()) return;
 
     const visitorId = getOrCreateVisitorId();
-    await sendMessage(
+    const userMsg = await sendMessage(
       session.id,
       content,
       'visitor',
@@ -177,35 +177,83 @@ export function ChatProvider({ children }: ChatProviderProps) {
       session.visitor_name || undefined
     );
 
+    if (!userMsg) {
+      console.error('Failed to send user message');
+      return;
+    }
+
     const operatorsOnline = await hasOnlineOperators();
 
     if (!operatorsOnline) {
       setIsAITyping(true);
 
-      const aiResponse = await getAIResponse(
-        session.id,
-        content,
-        productContext ? {
-          id: productContext.id,
-          name: productContext.name,
-          price: productContext.price,
-          category: productContext.category,
-        } : undefined
-      );
+      try {
+        const aiResponse = await getAIResponse(
+          session.id,
+          content,
+          productContext ? {
+            id: productContext.id,
+            name: productContext.name,
+            price: productContext.price,
+            category: productContext.category,
+          } : undefined
+        );
 
-      setIsAITyping(false);
+        setIsAITyping(false);
 
-      if (aiResponse?.success && aiResponse.response) {
+        if (aiResponse?.success && aiResponse.response) {
+          const botMsg = await sendMessage(
+            session.id,
+            aiResponse.response,
+            'bot',
+            'ai',
+            'ORZUTECH AI'
+          );
+
+          if (!botMsg) {
+            console.error('Failed to save AI response to chat');
+          }
+        } else if (aiResponse?.response) {
+          await sendMessage(
+            session.id,
+            aiResponse.response,
+            'bot',
+            'ai',
+            'ORZUTECH AI'
+          );
+        } else {
+          const fallbackMessages = {
+            uz: "Kechirasiz, hozir javob berishda muammo bor. Iltimos, biroz kutib qayta urinib ko'ring.",
+            ru: "Извините, возникла проблема. Пожалуйста, попробуйте позже.",
+            en: "Sorry, there was an issue. Please try again later."
+          };
+          await sendMessage(
+            session.id,
+            fallbackMessages[language as keyof typeof fallbackMessages] || fallbackMessages.uz,
+            'bot',
+            'ai',
+            'ORZUTECH AI'
+          );
+        }
+      } catch (error) {
+        console.error('AI response error:', error);
+        setIsAITyping(false);
+
+        const errorMessages = {
+          uz: "Texnik xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+          ru: "Произошла техническая ошибка. Попробуйте еще раз.",
+          en: "A technical error occurred. Please try again."
+        };
         await sendMessage(
           session.id,
-          aiResponse.response,
+          errorMessages[language as keyof typeof errorMessages] || errorMessages.uz,
           'bot',
           'ai',
           'ORZUTECH AI'
         );
       }
     }
-  }, [session, productContext]);
+  }, [session, productContext, language]);
 
   const submitOfflineForm = useCallback(async (
     name: string,

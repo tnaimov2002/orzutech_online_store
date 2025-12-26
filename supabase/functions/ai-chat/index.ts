@@ -23,10 +23,8 @@ interface DetectedLanguage {
   script: 'latin' | 'cyrillic' | null;
 }
 
-const cyrillicUzbekChars = /[ўқғҳ]/i;
-const cyrillicPattern = /[а-яА-ЯёЁ]/;
-const latinPattern = /[a-zA-Z]/;
-const uzbekLatinSpecial = /[oʻgʻ]|o'|g'/i;
+const cyrillicUzbekChars = /[\u045e\u049b\u0493\u04b3]/i;
+const cyrillicPattern = /[\u0430-\u044f\u0410-\u042f\u0451\u0401]/;
 
 function detectLanguageAndScript(text: string): DetectedLanguage {
   const cleanText = text.replace(/[\d\s\p{P}]/gu, '');
@@ -35,13 +33,11 @@ function detectLanguageAndScript(text: string): DetectedLanguage {
     return { language: 'uz', script: 'cyrillic' };
   }
   
-  const cyrillicCount = (cleanText.match(/[а-яА-ЯёЁ]/g) || []).length;
+  const cyrillicCount = (cleanText.match(/[\u0430-\u044f\u0410-\u042f\u0451\u0401]/g) || []).length;
   const latinCount = (cleanText.match(/[a-zA-Z]/g) || []).length;
   
   if (cyrillicCount > latinCount) {
-    const uzbekWords = ['salom', 'rahmat', 'kerak', 'bormi', 'qancha', 'necha', 'mahsulot', 'narx', 'yetkazish'];
-    const russianWords = ['привет', 'спасибо', 'нужно', 'есть', 'сколько', 'товар', 'цена', 'доставка', 'здравствуйте'];
-    
+    const russianWords = ['\u043f\u0440\u0438\u0432\u0435\u0442', '\u0441\u043f\u0430\u0441\u0438\u0431\u043e', '\u043d\u0443\u0436\u043d\u043e', '\u0435\u0441\u0442\u044c', '\u0441\u043a\u043e\u043b\u044c\u043a\u043e', '\u0442\u043e\u0432\u0430\u0440', '\u0446\u0435\u043d\u0430', '\u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0430', '\u0437\u0434\u0440\u0430\u0432\u0441\u0442\u0432\u0443\u0439\u0442\u0435'];
     const textLower = text.toLowerCase();
     const hasRussian = russianWords.some(w => textLower.includes(w));
     
@@ -56,7 +52,7 @@ function detectLanguageAndScript(text: string): DetectedLanguage {
     const englishWords = ['hello', 'thanks', 'need', 'have', 'much', 'product', 'price', 'delivery', 'warranty', 'payment', 'buy', 'how'];
     
     const textLower = text.toLowerCase();
-    const hasUzbek = uzbekLatinWords.some(w => textLower.includes(w)) || uzbekLatinSpecial.test(text);
+    const hasUzbek = uzbekLatinWords.some(w => textLower.includes(w));
     const hasEnglish = englishWords.some(w => textLower.includes(w));
     
     if (hasUzbek && !hasEnglish) {
@@ -76,18 +72,24 @@ function getLocalizedContent(item: any, field: string, lang: DetectedLanguage): 
   return item[`${field}${langSuffix}`] || item[field] || item[`${field}_uz`] || '';
 }
 
+function getProductName(product: any, lang: DetectedLanguage): string {
+  if (lang.language === 'ru') return product.name_ru || product.name_uz;
+  if (lang.language === 'en') return product.name_en || product.name_uz;
+  return product.name_uz;
+}
+
 async function findMatchingFAQ(
   supabase: any,
   message: string,
   lang: DetectedLanguage
 ): Promise<string | null> {
-  const { data: faqs } = await supabase
+  const { data: faqs, error } = await supabase
     .from('ai_faq')
     .select('*')
     .eq('is_active', true)
     .order('priority', { ascending: false });
 
-  if (!faqs || faqs.length === 0) return null;
+  if (error || !faqs || faqs.length === 0) return null;
 
   const messageLower = message.toLowerCase();
   
@@ -108,32 +110,34 @@ async function findMatchingFAQ(
 async function searchProducts(
   supabase: any,
   query: string,
-  limit: number = 5
+  lang: DetectedLanguage,
+  limit: number = 3
 ): Promise<any[]> {
   const searchTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
   
-  let queryBuilder = supabase
-    .from('products')
-    .select(`
-      id,
-      name,
-      description,
-      price,
-      discount_percent,
-      stock_quantity,
-      specifications,
-      categories(name)
-    `)
-    .eq('is_active', true)
-    .gt('stock_quantity', 0);
-
-  if (searchTerms.length > 0) {
-    const searchPattern = searchTerms.join(' | ');
-    queryBuilder = queryBuilder.or(`name.ilike.%${searchTerms[0]}%,description.ilike.%${searchTerms[0]}%`);
+  if (searchTerms.length === 0) {
+    const { data } = await supabase
+      .from('products')
+      .select('id, name_uz, name_ru, name_en, price, original_price, stock_quantity, categories(name_uz, name_ru)')
+      .gt('stock_quantity', 0)
+      .order('is_popular', { ascending: false })
+      .limit(limit);
+    return data || [];
   }
 
-  const { data: products } = await queryBuilder.limit(limit);
-  return products || [];
+  const searchTerm = searchTerms[0];
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, name_uz, name_ru, name_en, price, original_price, stock_quantity, categories(name_uz, name_ru)')
+    .gt('stock_quantity', 0)
+    .or(`name_uz.ilike.%${searchTerm}%,name_ru.ilike.%${searchTerm}%,name_en.ilike.%${searchTerm}%`)
+    .limit(limit);
+
+  if (error) {
+    console.error('Product search error:', error);
+    return [];
+  }
+  return data || [];
 }
 
 async function getPolicyInfo(
@@ -154,14 +158,13 @@ async function getPolicyInfo(
 
 function generateProductRecommendation(
   products: any[],
-  lang: DetectedLanguage,
-  context?: string
+  lang: DetectedLanguage
 ): string {
   if (products.length === 0) {
     const noProductsMsg = {
-      uz: { latin: "Kechirasiz, so'rovingizga mos mahsulot topilmadi. Boshqa mahsulotlarni ko'rishni xohlaysizmi?", cyrillic: "Кечирасиз, сўровингизга мос маҳсулот топилмади. Бошқа маҳсулотларни кўришни хоҳлайсизми?" },
-      ru: "Извините, по вашему запросу товары не найдены. Хотите посмотреть другие товары?",
-      en: "Sorry, no products found matching your query. Would you like to see other products?"
+      uz: { latin: "Kechirasiz, so'rovingizga mos mahsulot topilmadi. Boshqa mahsulotlarni ko'rishni xohlaysizmi?", cyrillic: "\u041a\u0435\u0447\u0438\u0440\u0430\u0441\u0438\u0437, \u0441\u045e\u0440\u043e\u0432\u0438\u043d\u0433\u0438\u0437\u0433\u0430 \u043c\u043e\u0441 \u043c\u0430\u04b3\u0441\u0443\u043b\u043e\u0442 \u0442\u043e\u043f\u0438\u043b\u043c\u0430\u0434\u0438." },
+      ru: "\u0418\u0437\u0432\u0438\u043d\u0438\u0442\u0435, \u043f\u043e \u0432\u0430\u0448\u0435\u043c\u0443 \u0437\u0430\u043f\u0440\u043e\u0441\u0443 \u0442\u043e\u0432\u0430\u0440\u044b \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u044b.",
+      en: "Sorry, no products found matching your query."
     };
     if (lang.language === 'uz') {
       return noProductsMsg.uz[lang.script || 'latin'];
@@ -170,8 +173,8 @@ function generateProductRecommendation(
   }
 
   const headers = {
-    uz: { latin: "Sizga quyidagi mahsulotlarni tavsiya qilaman:", cyrillic: "Сизга қуйидаги маҳсулотларни тавсия қиламан:" },
-    ru: "Рекомендую вам следующие товары:",
+    uz: { latin: "Sizga quyidagi mahsulotlarni tavsiya qilaman:", cyrillic: "\u0421\u0438\u0437\u0433\u0430 \u049b\u0443\u0439\u0438\u0434\u0430\u0433\u0438 \u043c\u0430\u04b3\u0441\u0443\u043b\u043e\u0442\u043b\u0430\u0440\u043d\u0438 \u0442\u0430\u0432\u0441\u0438\u044f \u049b\u0438\u043b\u0430\u043c\u0430\u043d:" },
+    ru: "\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u044e \u0432\u0430\u043c \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0435 \u0442\u043e\u0432\u0430\u0440\u044b:",
     en: "I recommend the following products:"
   };
 
@@ -181,26 +184,24 @@ function generateProductRecommendation(
   response += "\n\n";
 
   products.forEach((product, index) => {
-    const finalPrice = product.discount_percent 
-      ? Math.round(product.price * (1 - product.discount_percent / 100))
-      : product.price;
+    const hasDiscount = product.original_price && product.original_price > product.price;
+    const discountPercent = hasDiscount ? Math.round((1 - product.price / product.original_price) * 100) : 0;
+    const productName = getProductName(product, lang);
+    const priceFormatted = Number(product.price).toLocaleString('uz-UZ');
     
-    const priceFormatted = finalPrice.toLocaleString('uz-UZ');
-    const categoryName = product.categories?.name || '';
-    
-    response += `${index + 1}. **${product.name}**\n`;
+    response += `${index + 1}. ${productName}\n`;
     response += `   ${priceFormatted} so'm`;
-    if (product.discount_percent) {
+    if (discountPercent > 0) {
       response += lang.language === 'uz' 
-        ? (lang.script === 'cyrillic' ? ` (-${product.discount_percent}% чегирма)` : ` (-${product.discount_percent}% chegirma)`)
-        : lang.language === 'ru' ? ` (-${product.discount_percent}% скидка)` : ` (-${product.discount_percent}% off)`;
+        ? (lang.script === 'cyrillic' ? ` (-${discountPercent}% \u0447\u0435\u0433\u0438\u0440\u043c\u0430)` : ` (-${discountPercent}% chegirma)`)
+        : lang.language === 'ru' ? ` (-${discountPercent}% \u0441\u043a\u0438\u0434\u043a\u0430)` : ` (-${discountPercent}% off)`;
     }
     response += "\n\n";
   });
 
   const cta = {
-    uz: { latin: "Qaysi biri haqida ko'proq ma'lumot olishni xohlaysiz?", cyrillic: "Қайси бири ҳақида кўпроқ маълумот олишни хоҳлайсиз?" },
-    ru: "О каком товаре хотите узнать подробнее?",
+    uz: { latin: "Qaysi biri haqida ko'proq ma'lumot olishni xohlaysiz?", cyrillic: "\u049a\u0430\u0439\u0441\u0438 \u0431\u0438\u0440\u0438 \u04b3\u0430\u049b\u0438\u0434\u0430 \u043a\u045e\u043f\u0440\u043e\u049b \u043c\u0430\u044a\u043b\u0443\u043c\u043e\u0442 \u043e\u043b\u0438\u0448\u043d\u0438 \u0445\u043e\u04b3\u043b\u0430\u0439\u0441\u0438\u0437?" },
+    ru: "\u041e \u043a\u0430\u043a\u043e\u043c \u0442\u043e\u0432\u0430\u0440\u0435 \u0445\u043e\u0442\u0438\u0442\u0435 \u0443\u0437\u043d\u0430\u0442\u044c \u043f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435?",
     en: "Which one would you like to know more about?"
   };
 
@@ -209,38 +210,6 @@ function generateProductRecommendation(
     : cta[lang.language];
 
   return response;
-}
-
-function generateGreeting(lang: DetectedLanguage, operatorStatus: string): string {
-  const greetings = {
-    uz: {
-      latin: `Salom! Men ORZUTECH sun'iy intellekt yordamchisiman. ${operatorStatus === 'offline' ? 'Hozir operatorlar band. ' : ''}Sizga qanday yordam bera olaman?`,
-      cyrillic: `Салом! Мен ORZUTECH сунъий интеллект ёрдамчисиман. ${operatorStatus === 'offline' ? 'Ҳозир операторлар банд. ' : ''}Сизга қандай ёрдам бера оламан?`
-    },
-    ru: `Здравствуйте! Я AI-помощник ORZUTECH. ${operatorStatus === 'offline' ? 'Сейчас операторы заняты. ' : ''}Чем могу помочь?`,
-    en: `Hello! I'm ORZUTECH AI assistant. ${operatorStatus === 'offline' ? 'Operators are currently busy. ' : ''}How can I help you?`
-  };
-
-  if (lang.language === 'uz') {
-    return greetings.uz[lang.script || 'latin'];
-  }
-  return greetings[lang.language];
-}
-
-function generateUncertainResponse(lang: DetectedLanguage): string {
-  const responses = {
-    uz: {
-      latin: "Aniqlashtirib beraman. Iltimos, biroz kuting yoki operatorimiz bilan bog'lanishni xohlaysizmi?",
-      cyrillic: "Аниқлаштириб бераман. Илтимос, бироз кутинг ёки операторимиз билан боғланишни хоҳлайсизми?"
-    },
-    ru: "Уточню информацию. Пожалуйста, подождите или хотите связаться с оператором?",
-    en: "Let me clarify that. Please wait a moment or would you like to speak with an operator?"
-  };
-
-  if (lang.language === 'uz') {
-    return responses.uz[lang.script || 'latin'];
-  }
-  return responses[lang.language];
 }
 
 async function generateAIResponse(
@@ -258,11 +227,11 @@ async function generateAIResponse(
     return { response: faqAnswer, sources };
   }
 
-  const productKeywords = ['noutbuk', 'kompyuter', 'telefon', 'laptop', 'computer', 'phone', 'iphone', 'samsung', 'arzon', 'дешевый', 'ноутбук', 'компьютер', 'телефон', 'mahsulot', 'товар', 'product', 'sotib', 'купить', 'buy', 'kerak', 'нужно', 'need'];
+  const productKeywords = ['noutbuk', 'kompyuter', 'telefon', 'laptop', 'computer', 'phone', 'iphone', 'samsung', 'arzon', '\u0434\u0435\u0448\u0435\u0432\u044b\u0439', '\u043d\u043e\u0443\u0442\u0431\u0443\u043a', '\u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440', '\u0442\u0435\u043b\u0435\u0444\u043e\u043d', 'mahsulot', '\u0442\u043e\u0432\u0430\u0440', 'product', 'sotib', '\u043a\u0443\u043f\u0438\u0442\u044c', 'buy', 'kerak', '\u043d\u0443\u0436\u043d\u043e', 'need', 'narx', 'price', '\u0446\u0435\u043d\u0430'];
   const isProductQuery = productKeywords.some(kw => messageLower.includes(kw));
 
   if (isProductQuery) {
-    const products = await searchProducts(supabase, message, 3);
+    const products = await searchProducts(supabase, message, lang, 3);
     sources.push('products');
     return { response: generateProductRecommendation(products, lang), sources };
   }
@@ -270,23 +239,22 @@ async function generateAIResponse(
   if (productContext?.id) {
     const { data: product } = await supabase
       .from('products')
-      .select('*, categories(name)')
+      .select('*, categories(name_uz, name_ru)')
       .eq('id', productContext.id)
       .maybeSingle();
 
     if (product) {
       sources.push('product_context');
-      const finalPrice = product.discount_percent 
-        ? Math.round(product.price * (1 - product.discount_percent / 100))
-        : product.price;
+      const productName = getProductName(product, lang);
+      const priceFormatted = Number(product.price).toLocaleString('uz-UZ');
 
       const productInfo = {
         uz: {
-          latin: `"${product.name}" haqida: Narxi ${finalPrice.toLocaleString('uz-UZ')} so'm. ${product.stock_quantity > 0 ? 'Mavjud.' : 'Hozircha mavjud emas.'} Sotib olishga yordam beraymi?`,
-          cyrillic: `"${product.name}" ҳақида: Нархи ${finalPrice.toLocaleString('uz-UZ')} сўм. ${product.stock_quantity > 0 ? 'Мавжуд.' : 'Ҳозирча мавжуд эмас.'} Сотиб олишга ёрдам берайми?`
+          latin: `"${productName}" haqida: Narxi ${priceFormatted} so'm. ${product.stock_quantity > 0 ? 'Mavjud.' : 'Hozircha mavjud emas.'} Sotib olishga yordam beraymi?`,
+          cyrillic: `"${productName}" \u04b3\u0430\u049b\u0438\u0434\u0430: \u041d\u0430\u0440\u0445\u0438 ${priceFormatted} \u0441\u045e\u043c. ${product.stock_quantity > 0 ? '\u041c\u0430\u0432\u0436\u0443\u0434.' : '\u04b2\u043e\u0437\u0438\u0440\u0447\u0430 \u043c\u0430\u0432\u0436\u0443\u0434 \u044d\u043c\u0430\u0441.'} \u0421\u043e\u0442\u0438\u0431 \u043e\u043b\u0438\u0448\u0433\u0430 \u0451\u0440\u0434\u0430\u043c \u0431\u0435\u0440\u0430\u0439\u043c\u0438?`
         },
-        ru: `О товаре "${product.name}": Цена ${finalPrice.toLocaleString('uz-UZ')} сум. ${product.stock_quantity > 0 ? 'В наличии.' : 'Нет в наличии.'} Помочь с покупкой?`,
-        en: `About "${product.name}": Price ${finalPrice.toLocaleString('uz-UZ')} UZS. ${product.stock_quantity > 0 ? 'In stock.' : 'Out of stock.'} Would you like help purchasing?`
+        ru: `\u041e \u0442\u043e\u0432\u0430\u0440\u0435 "${productName}": \u0426\u0435\u043d\u0430 ${priceFormatted} \u0441\u0443\u043c. ${product.stock_quantity > 0 ? '\u0412 \u043d\u0430\u043b\u0438\u0447\u0438\u0438.' : '\u041d\u0435\u0442 \u0432 \u043d\u0430\u043b\u0438\u0447\u0438\u0438.'} \u041f\u043e\u043c\u043e\u0447\u044c \u0441 \u043f\u043e\u043a\u0443\u043f\u043a\u043e\u0439?`,
+        en: `About "${productName}": Price ${priceFormatted} UZS. ${product.stock_quantity > 0 ? 'In stock.' : 'Out of stock.'} Would you like help purchasing?`
       };
 
       if (lang.language === 'uz') {
@@ -297,9 +265,9 @@ async function generateAIResponse(
   }
 
   const policyKeywords = {
-    warranty: ['kafolat', 'гарантия', 'warranty', 'garantiya'],
-    returns: ['qaytarish', 'возврат', 'return', 'almashish', 'обмен'],
-    privacy: ['maxfiylik', 'конфиденциальность', 'privacy']
+    warranty: ['kafolat', '\u0433\u0430\u0440\u0430\u043d\u0442\u0438\u044f', 'warranty', 'garantiya'],
+    returns: ['qaytarish', '\u0432\u043e\u0437\u0432\u0440\u0430\u0442', 'return', 'almashish', '\u043e\u0431\u043c\u0435\u043d'],
+    privacy: ['maxfiylik', '\u043a\u043e\u043d\u0444\u0438\u0434\u0435\u043d\u0446\u0438\u0430\u043b\u044c\u043d\u043e\u0441\u0442\u044c', 'privacy']
   };
 
   for (const [policyType, keywords] of Object.entries(policyKeywords)) {
@@ -315,9 +283,9 @@ async function generateAIResponse(
   const generalResponses = {
     uz: {
       latin: "Tushundim. Sizga quyidagi mavzularda yordam bera olaman:\n\n- Mahsulotlar va narxlar\n- Yetkazib berish\n- Kafolat va qaytarish\n- To'lov usullari\n- Do'kon manzili\n\nQanday savol bor?",
-      cyrillic: "Тушундим. Сизга қуйидаги мавзуларда ёрдам бера оламан:\n\n- Маҳсулотлар ва нархлар\n- Етказиб бериш\n- Кафолат ва қайтариш\n- Тўлов усуллари\n- Дўкон манзили\n\nҚандай савол бор?"
+      cyrillic: "\u0422\u0443\u0448\u0443\u043d\u0434\u0438\u043c. \u0421\u0438\u0437\u0433\u0430 \u049b\u0443\u0439\u0438\u0434\u0430\u0433\u0438 \u043c\u0430\u0432\u0437\u0443\u043b\u0430\u0440\u0434\u0430 \u0451\u0440\u0434\u0430\u043c \u0431\u0435\u0440\u0430 \u043e\u043b\u0430\u043c\u0430\u043d:\n\n- \u041c\u0430\u04b3\u0441\u0443\u043b\u043e\u0442\u043b\u0430\u0440 \u0432\u0430 \u043d\u0430\u0440\u0445\u043b\u0430\u0440\n- \u0415\u0442\u043a\u0430\u0437\u0438\u0431 \u0431\u0435\u0440\u0438\u0448\n- \u041a\u0430\u0444\u043e\u043b\u0430\u0442 \u0432\u0430 \u049b\u0430\u0439\u0442\u0430\u0440\u0438\u0448\n- \u0422\u045e\u043b\u043e\u0432 \u0443\u0441\u0443\u043b\u043b\u0430\u0440\u0438\n- \u0414\u045e\u043a\u043e\u043d \u043c\u0430\u043d\u0437\u0438\u043b\u0438\n\n\u049a\u0430\u043d\u0434\u0430\u0439 \u0441\u0430\u0432\u043e\u043b \u0431\u043e\u0440?"
     },
-    ru: "Понял. Могу помочь по следующим темам:\n\n- Товары и цены\n- Доставка\n- Гарантия и возврат\n- Способы оплаты\n- Адрес магазина\n\nКакой у вас вопрос?",
+    ru: "\u041f\u043e\u043d\u044f\u043b. \u041c\u043e\u0433\u0443 \u043f\u043e\u043c\u043e\u0447\u044c \u043f\u043e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u043c \u0442\u0435\u043c\u0430\u043c:\n\n- \u0422\u043e\u0432\u0430\u0440\u044b \u0438 \u0446\u0435\u043d\u044b\n- \u0414\u043e\u0441\u0442\u0430\u0432\u043a\u0430\n- \u0413\u0430\u0440\u0430\u043d\u0442\u0438\u044f \u0438 \u0432\u043e\u0437\u0432\u0440\u0430\u0442\n- \u0421\u043f\u043e\u0441\u043e\u0431\u044b \u043e\u043f\u043b\u0430\u0442\u044b\n- \u0410\u0434\u0440\u0435\u0441 \u043c\u0430\u0433\u0430\u0437\u0438\u043d\u0430\n\n\u041a\u0430\u043a\u043e\u0439 \u0443 \u0432\u0430\u0441 \u0432\u043e\u043f\u0440\u043e\u0441?",
     en: "I understand. I can help you with:\n\n- Products and prices\n- Delivery\n- Warranty and returns\n- Payment methods\n- Store location\n\nWhat's your question?"
   };
 
@@ -341,7 +309,7 @@ Deno.serve(async (req: Request) => {
 
     if (!sessionId || !message) {
       return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
+        JSON.stringify({ success: false, error: "Missing required fields" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -368,8 +336,6 @@ Deno.serve(async (req: Request) => {
       knowledge_sources: sources,
     });
 
-    await supabase.rpc('increment_ai_analytics', {}).catch(() => {});
-
     return new Response(
       JSON.stringify({
         success: true,
@@ -385,8 +351,19 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("AI Chat error:", error);
+    
+    const errorResponse = {
+      uz: "Kechirasiz, xatolik yuz berdi. Iltimos, qayta urinib ko'ring.",
+      ru: "\u0418\u0437\u0432\u0438\u043d\u0438\u0442\u0435, \u043f\u0440\u043e\u0438\u0437\u043e\u0448\u043b\u0430 \u043e\u0448\u0438\u0431\u043a\u0430. \u041f\u043e\u0436\u0430\u043b\u0443\u0439\u0441\u0442\u0430, \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0435\u0449\u0435 \u0440\u0430\u0437.",
+      en: "Sorry, an error occurred. Please try again."
+    };
+    
     return new Response(
-      JSON.stringify({ error: "Internal server error" }),
+      JSON.stringify({ 
+        success: false, 
+        error: "Internal server error",
+        response: errorResponse.uz
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

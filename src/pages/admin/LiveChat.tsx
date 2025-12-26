@@ -416,9 +416,17 @@ export default function LiveChat() {
                             ? 'bg-white text-gray-900 rounded-2xl rounded-bl-md shadow-sm border border-gray-100'
                             : message.sender_type === 'system'
                               ? 'bg-gray-200 text-gray-700 rounded-2xl'
-                              : 'bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-2xl rounded-br-md'
+                              : message.sender_type === 'bot'
+                                ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-br-md'
+                                : 'bg-gradient-to-br from-orange-500 to-orange-600 text-white rounded-2xl rounded-br-md'
                         } px-4 py-2.5`}
                       >
+                        {message.sender_type === 'bot' && (
+                          <p className="text-xs text-blue-200 mb-1 flex items-center gap-1">
+                            <Zap className="w-3 h-3" />
+                            AI Assistant
+                          </p>
+                        )}
                         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                         <div className={`flex items-center gap-1 mt-1 ${
                           message.sender_type === 'visitor' ? 'text-gray-400' : 'text-white/70'
