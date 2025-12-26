@@ -13,7 +13,8 @@ import {
   LogOut,
   Menu,
   Globe,
-  ChevronDown
+  ChevronDown,
+  MessageCircle
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAdmin } from '../../context/AdminContext';
@@ -64,6 +65,7 @@ export default function AdminLayout() {
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: t.admin.dashboard, exact: true },
     { path: '/admin/orders', icon: ShoppingCart, label: t.admin.orders },
+    { path: '/admin/chat', icon: MessageCircle, label: language === 'uz' ? 'Chat' : language === 'ru' ? 'Чат' : 'Chat' },
     { path: '/admin/products', icon: Package, label: t.admin.products },
     { path: '/admin/categories', icon: FolderTree, label: t.admin.categories },
     { path: '/admin/customers', icon: Users, label: t.admin.customers },
