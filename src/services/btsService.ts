@@ -1,30 +1,16 @@
 import { supabase } from '../lib/supabase';
+import { isBukharaCity } from './addressService';
 
 export interface BtsTariff {
   price: number;
   etaHours: number;
   isFromCache: boolean;
   isFallback: boolean;
+  weightKg: number;
 }
 
-const BTS_FALLBACK_TARIFFS: Record<string, { price: number; etaHours: number }> = {
-  bukhara_city: { price: 0, etaHours: 24 },
-  bukhara_region: { price: 35000, etaHours: 48 },
-  tashkent_city: { price: 45000, etaHours: 72 },
-  tashkent_region: { price: 45000, etaHours: 72 },
-  samarkand: { price: 40000, etaHours: 48 },
-  fergana: { price: 50000, etaHours: 72 },
-  andijan: { price: 50000, etaHours: 72 },
-  namangan: { price: 50000, etaHours: 72 },
-  kashkadarya: { price: 45000, etaHours: 72 },
-  surkhandarya: { price: 55000, etaHours: 72 },
-  navoi: { price: 40000, etaHours: 72 },
-  khorezm: { price: 55000, etaHours: 72 },
-  jizzakh: { price: 40000, etaHours: 72 },
-  syrdarya: { price: 45000, etaHours: 72 },
-  karakalpakstan: { price: 60000, etaHours: 72 },
-  default: { price: 35000, etaHours: 72 },
-};
+const BTS_BASE_PRICE = 35000;
+const BTS_ADDITIONAL_KG_PRICE = 5000;
 
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000;
 
@@ -34,21 +20,22 @@ function getCacheKey(regionCode: string, cityName?: string): string {
   return cityName ? `${regionCode}:${cityName.toLowerCase()}` : regionCode;
 }
 
-function isBukharaCity(regionCode: string, cityName: string): boolean {
-  const bukharaCityNames = [
-    'buxoro shahri',
-    'buxoro shahar',
-    'bukhara city',
-    'город бухара',
-    'buxoro',
-  ];
+export function calculateBtsPrice(weightKg: number): number {
+  if (weightKg <= 1) {
+    return BTS_BASE_PRICE;
+  }
+  const additionalKg = Math.ceil(weightKg - 1);
+  return BTS_BASE_PRICE + (additionalKg * BTS_ADDITIONAL_KG_PRICE);
+}
 
-  if (regionCode !== 'bukhara') return false;
-
-  const normalizedCity = cityName.toLowerCase().trim();
-  return bukharaCityNames.some(name =>
-    normalizedCity.includes(name) || normalizedCity === 'buxoro shahri'
-  );
+export function getEtaHours(regionCode: string, cityName: string): number {
+  if (isBukharaCity(regionCode, cityName)) {
+    return 24;
+  }
+  if (regionCode === 'bukhara') {
+    return 48;
+  }
+  return 72;
 }
 
 export async function getBtsTariff(
@@ -62,18 +49,27 @@ export async function getBtsTariff(
       etaHours: 24,
       isFromCache: false,
       isFallback: false,
+      weightKg,
     };
   }
 
-  const cacheKey = getCacheKey(regionCode, cityName);
+  const price = calculateBtsPrice(weightKg);
+  const etaHours = getEtaHours(regionCode, cityName);
 
+  const cacheKey = getCacheKey(regionCode, cityName);
   const memoryCached = memoryCache.get(cacheKey);
   if (memoryCached && Date.now() - memoryCached.timestamp < CACHE_DURATION_MS) {
-    return { ...memoryCached.tariff, isFromCache: true };
+    const cachedPrice = calculateBtsPrice(weightKg);
+    return {
+      ...memoryCached.tariff,
+      price: cachedPrice,
+      weightKg,
+      isFromCache: true,
+    };
   }
 
   try {
-    const dbTariff = await getDbCachedTariff(regionCode, cityName);
+    const dbTariff = await getDbCachedTariff(regionCode, cityName, weightKg);
     if (dbTariff) {
       memoryCache.set(cacheKey, { tariff: dbTariff, timestamp: Date.now() });
       return dbTariff;
@@ -82,23 +78,22 @@ export async function getBtsTariff(
     console.error('Error fetching DB cached tariff:', error);
   }
 
-  try {
-    const liveTariff = await fetchBtsLiveTariff(regionCode, cityName, weightKg);
-    if (liveTariff) {
-      await saveTariffToCache(regionCode, cityName, liveTariff);
-      memoryCache.set(cacheKey, { tariff: liveTariff, timestamp: Date.now() });
-      return liveTariff;
-    }
-  } catch (error) {
-    console.error('BTS API unavailable, using fallback:', error);
-  }
+  const tariff: BtsTariff = {
+    price,
+    etaHours,
+    isFromCache: false,
+    isFallback: true,
+    weightKg,
+  };
 
-  return getFallbackTariff(regionCode, cityName);
+  memoryCache.set(cacheKey, { tariff, timestamp: Date.now() });
+  return tariff;
 }
 
 async function getDbCachedTariff(
   regionCode: string,
-  cityName: string
+  cityName: string,
+  weightKg: number
 ): Promise<BtsTariff | null> {
   const { data: regionData } = await supabase
     .from('delivery_settings')
@@ -114,6 +109,7 @@ async function getDbCachedTariff(
       etaHours: regionData.delivery_eta_hours,
       isFromCache: false,
       isFallback: false,
+      weightKg,
     };
   }
 
@@ -126,86 +122,34 @@ async function getDbCachedTariff(
     .maybeSingle();
 
   if (cityOverride) {
-    return {
-      price: cityOverride.is_free_delivery ? 0 : (cityOverride.delivery_price ?? regionData.base_delivery_price),
-      etaHours: cityOverride.delivery_eta_hours ?? regionData.delivery_eta_hours,
-      isFromCache: cityOverride.bts_tariff_cached !== null,
-      isFallback: false,
-    };
-  }
-
-  if (regionData.bts_tariff_cached !== null && regionData.bts_cache_updated_at) {
-    const cacheAge = Date.now() - new Date(regionData.bts_cache_updated_at).getTime();
-    if (cacheAge < CACHE_DURATION_MS) {
+    if (cityOverride.is_free_delivery) {
       return {
-        price: regionData.is_free_delivery ? 0 : regionData.bts_tariff_cached,
-        etaHours: regionData.delivery_eta_hours,
-        isFromCache: true,
+        price: 0,
+        etaHours: cityOverride.delivery_eta_hours ?? regionData.delivery_eta_hours,
+        isFromCache: false,
         isFallback: false,
+        weightKg,
+      };
+    }
+    if (cityOverride.delivery_price !== null) {
+      return {
+        price: cityOverride.delivery_price,
+        etaHours: cityOverride.delivery_eta_hours ?? regionData.delivery_eta_hours,
+        isFromCache: cityOverride.bts_tariff_cached !== null,
+        isFallback: false,
+        weightKg,
       };
     }
   }
 
+  const price = calculateBtsPrice(weightKg);
+
   return {
-    price: regionData.is_free_delivery ? 0 : regionData.base_delivery_price,
+    price,
     etaHours: regionData.delivery_eta_hours,
     isFromCache: false,
     isFallback: false,
-  };
-}
-
-async function fetchBtsLiveTariff(
-  regionCode: string,
-  cityName: string,
-  weightKg: number
-): Promise<BtsTariff | null> {
-  return null;
-}
-
-async function saveTariffToCache(
-  regionCode: string,
-  cityName: string,
-  tariff: BtsTariff
-): Promise<void> {
-  try {
-    await supabase
-      .from('delivery_settings')
-      .update({
-        bts_tariff_cached: tariff.price,
-        bts_cache_updated_at: new Date().toISOString(),
-      })
-      .eq('region_code', regionCode);
-  } catch (error) {
-    console.error('Error saving tariff to cache:', error);
-  }
-}
-
-function getFallbackTariff(regionCode: string, cityName: string): BtsTariff {
-  if (isBukharaCity(regionCode, cityName)) {
-    return {
-      price: 0,
-      etaHours: 24,
-      isFromCache: false,
-      isFallback: false,
-    };
-  }
-
-  if (regionCode === 'bukhara') {
-    return {
-      price: BTS_FALLBACK_TARIFFS.bukhara_region.price,
-      etaHours: BTS_FALLBACK_TARIFFS.bukhara_region.etaHours,
-      isFromCache: false,
-      isFallback: true,
-    };
-  }
-
-  const fallback = BTS_FALLBACK_TARIFFS[regionCode] || BTS_FALLBACK_TARIFFS.default;
-
-  return {
-    price: fallback.price,
-    etaHours: fallback.etaHours,
-    isFromCache: false,
-    isFallback: true,
+    weightKg,
   };
 }
 
@@ -269,15 +213,42 @@ export function getDeliveryPriceMessage(
 
   if (isFallback) {
     return language === 'uz'
-      ? `${priceStr} UZS dan (taxminiy)`
+      ? `${priceStr} UZS (taxminiy)`
       : language === 'ru'
-        ? `от ${priceStr} UZS (приблизительно)`
-        : `from ${priceStr} UZS (estimated)`;
+        ? `${priceStr} UZS (приблизительно)`
+        : `${priceStr} UZS (estimated)`;
   }
 
+  return `${priceStr} UZS`;
+}
+
+export function formatWeight(weightKg: number, language: 'uz' | 'ru' | 'en'): string {
+  const weightStr = weightKg.toFixed(1).replace('.0', '');
   return language === 'uz'
-    ? `${priceStr} UZS dan`
+    ? `${weightStr} kg`
     : language === 'ru'
-      ? `от ${priceStr} UZS`
-      : `from ${priceStr} UZS`;
+      ? `${weightStr} кг`
+      : `${weightStr} kg`;
+}
+
+export function getWeightPriceBreakdown(
+  weightKg: number,
+  language: 'uz' | 'ru' | 'en'
+): string {
+  if (weightKg <= 1) {
+    return language === 'uz'
+      ? `1 kg gacha: ${BTS_BASE_PRICE.toLocaleString()} UZS`
+      : language === 'ru'
+        ? `До 1 кг: ${BTS_BASE_PRICE.toLocaleString()} UZS`
+        : `Up to 1 kg: ${BTS_BASE_PRICE.toLocaleString()} UZS`;
+  }
+
+  const additionalKg = Math.ceil(weightKg - 1);
+  const additionalCost = additionalKg * BTS_ADDITIONAL_KG_PRICE;
+
+  return language === 'uz'
+    ? `1 kg: ${BTS_BASE_PRICE.toLocaleString()} + ${additionalKg} kg x ${BTS_ADDITIONAL_KG_PRICE.toLocaleString()} = ${(BTS_BASE_PRICE + additionalCost).toLocaleString()} UZS`
+    : language === 'ru'
+      ? `1 кг: ${BTS_BASE_PRICE.toLocaleString()} + ${additionalKg} кг x ${BTS_ADDITIONAL_KG_PRICE.toLocaleString()} = ${(BTS_BASE_PRICE + additionalCost).toLocaleString()} UZS`
+      : `1 kg: ${BTS_BASE_PRICE.toLocaleString()} + ${additionalKg} kg x ${BTS_ADDITIONAL_KG_PRICE.toLocaleString()} = ${(BTS_BASE_PRICE + additionalCost).toLocaleString()} UZS`;
 }

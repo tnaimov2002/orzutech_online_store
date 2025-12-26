@@ -18,7 +18,8 @@ import {
   Home,
   Loader2,
   Mail,
-  AlertTriangle
+  AlertTriangle,
+  Scale
 } from 'lucide-react';
 import { Product, StoreLocation } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -295,6 +296,7 @@ export default function DirectCheckoutModal({
   const subtotal = product.price * quantity;
   const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
   const total = subtotal + deliveryFee;
+  const totalWeightKg = (product.weight_kg || 0.5) * quantity;
   const productImage = product.product_images?.[0]?.image_url
     || 'https://images.pexels.com/photos/404280/pexels-photo-404280.jpeg?auto=compress&cs=tinysrgb&w=400';
 
@@ -463,6 +465,7 @@ export default function DirectCheckoutModal({
                         <div className="space-y-4">
                           <AddressSelection
                             onAddressChange={handleAddressChange}
+                            totalWeightKg={totalWeightKg}
                             compact
                           />
                           {errors.address && (
@@ -545,6 +548,13 @@ export default function DirectCheckoutModal({
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-gray-500">{t.cart.subtotal}:</span>
                           <span className="font-medium">{formatPrice(subtotal)} {t.common.sum}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-500 flex items-center gap-1">
+                            <Scale className="w-3.5 h-3.5" />
+                            {language === 'uz' ? "Og'irlik" : language === 'ru' ? 'Вес' : 'Weight'}:
+                          </span>
+                          <span className="font-medium">{totalWeightKg.toFixed(1)} kg</span>
                         </div>
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-gray-500">{t.checkout.deliveryFee}:</span>

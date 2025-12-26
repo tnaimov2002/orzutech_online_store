@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Loader2, Truck, Clock, Check, Package } from 'lucide-react';
+import { MapPin, ChevronDown, Loader2, Truck, Clock, Check, Package, Scale } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   Region,
@@ -13,6 +13,8 @@ import {
   formatBtsEta,
   getBtsShippingMessage,
   getDeliveryPriceMessage,
+  formatWeight,
+  getWeightPriceBreakdown,
   BtsTariff,
 } from '../../services/btsService';
 
@@ -33,17 +35,20 @@ export interface DeliveryInfo {
   etaText: string;
   isFallback: boolean;
   btsMessage: string | null;
+  weightKg: number;
 }
 
 interface AddressSelectionProps {
   onAddressChange: (address: AddressData | null, deliveryInfo: DeliveryInfo | null) => void;
   onDeliveryCalculated?: (deliveryInfo: DeliveryInfo) => void;
+  totalWeightKg: number;
   compact?: boolean;
 }
 
 export default function AddressSelection({
   onAddressChange,
   onDeliveryCalculated,
+  totalWeightKg,
   compact = false,
 }: AddressSelectionProps) {
   const { language } = useLanguage();
@@ -57,11 +62,9 @@ export default function AddressSelection({
   const [addressDetails, setAddressDetails] = useState<string>('');
 
   const [loadingRegions, setLoadingRegions] = useState(true);
-  const [loadingDistricts, setLoadingDistricts] = useState(false);
   const [loadingTariff, setLoadingTariff] = useState(false);
 
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
-  const [btsTariff, setBtsTariff] = useState<BtsTariff | null>(null);
 
   const labels = {
     region: language === 'uz' ? 'Viloyat' : language === 'ru' ? 'Область' : 'Region',
@@ -75,6 +78,7 @@ export default function AddressSelection({
     deliveryPrice: language === 'uz' ? 'Yetkazib berish narxi' : language === 'ru' ? 'Стоимость доставки' : 'Delivery price',
     estimatedDelivery: language === 'uz' ? 'Yetkazib berish vaqti' : language === 'ru' ? 'Время доставки' : 'Delivery time',
     calculatingPrice: language === 'uz' ? 'Narx hisoblanmoqda...' : language === 'ru' ? 'Расчет стоимости...' : 'Calculating price...',
+    totalWeight: language === 'uz' ? "Umumiy og'irlik" : language === 'ru' ? 'Общий вес' : 'Total weight',
   };
 
   useEffect(() => {
@@ -88,20 +92,16 @@ export default function AddressSelection({
     setLoadingRegions(false);
   };
 
-  const handleRegionSelect = async (region: Region) => {
+  const handleRegionSelect = (region: Region) => {
     setSelectedRegion(region);
     setSelectedDistrict('');
     setStreet('');
     setAddressDetails('');
-    setDistricts([]);
     setDeliveryInfo(null);
-    setBtsTariff(null);
     onAddressChange(null, null);
 
-    setLoadingDistricts(true);
-    const districtsData = await fetchDistricts(region.code);
+    const districtsData = fetchDistricts(region.code);
     setDistricts(districtsData);
-    setLoadingDistricts(false);
   };
 
   const handleDistrictSelect = async (districtName: string) => {
@@ -112,8 +112,7 @@ export default function AddressSelection({
     setLoadingTariff(true);
 
     try {
-      const tariff = await getBtsTariff(selectedRegion.code, districtName);
-      setBtsTariff(tariff);
+      const tariff = await getBtsTariff(selectedRegion.code, districtName, totalWeightKg);
 
       const etaText = formatBtsEta(tariff.etaHours, language);
       const btsMessage = getBtsShippingMessage(selectedRegion.code, districtName, language);
@@ -125,6 +124,7 @@ export default function AddressSelection({
         etaText,
         isFallback: tariff.isFallback,
         btsMessage,
+        weightKg: totalWeightKg,
       };
 
       setDeliveryInfo(info);
@@ -138,6 +138,7 @@ export default function AddressSelection({
         etaText: formatBtsEta(72, language),
         isFallback: true,
         btsMessage: getBtsShippingMessage(selectedRegion.code, districtName, language),
+        weightKg: totalWeightKg,
       };
       setDeliveryInfo(fallbackInfo);
       onDeliveryCalculated?.(fallbackInfo);
@@ -145,6 +146,12 @@ export default function AddressSelection({
 
     setLoadingTariff(false);
   };
+
+  useEffect(() => {
+    if (selectedRegion && selectedDistrict && deliveryInfo) {
+      handleDistrictSelect(selectedDistrict);
+    }
+  }, [totalWeightKg]);
 
   const buildFullAddress = useCallback((): string => {
     const parts: string[] = [];
@@ -189,14 +196,24 @@ export default function AddressSelection({
     language,
   ]);
 
-  const inputClass = (hasError?: boolean) =>
-    `w-full px-4 py-3 rounded-xl border ${hasError ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500 transition-colors`;
+  const inputClass = () =>
+    `w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500 transition-colors`;
 
   const selectClass = () =>
     `w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500 transition-colors appearance-none bg-white cursor-pointer`;
 
   return (
     <div className={`space-y-${compact ? '4' : '5'}`}>
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+          <Scale className="w-5 h-5 text-blue-600" />
+        </div>
+        <div>
+          <div className="text-sm font-medium text-blue-800">{labels.totalWeight}</div>
+          <div className="text-lg font-bold text-blue-900">{formatWeight(totalWeightKg, language)}</div>
+        </div>
+      </div>
+
       <div className={`grid ${compact ? 'grid-cols-1' : 'sm:grid-cols-2'} gap-4`}>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -235,7 +252,7 @@ export default function AddressSelection({
             <select
               value={selectedDistrict}
               onChange={(e) => handleDistrictSelect(e.target.value)}
-              disabled={!selectedRegion || loadingDistricts}
+              disabled={!selectedRegion || districts.length === 0}
               className={selectClass()}
             >
               <option value="">{labels.selectDistrict}</option>
@@ -246,10 +263,12 @@ export default function AddressSelection({
               ))}
             </select>
             <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-            {loadingDistricts && (
-              <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500 animate-spin" />
-            )}
           </div>
+          {selectedRegion && districts.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              {districts.length} {language === 'uz' ? 'ta tuman/shahar' : language === 'ru' ? 'районов/городов' : 'districts/cities'}
+            </p>
+          )}
         </div>
       </div>
 
@@ -300,6 +319,11 @@ export default function AddressSelection({
                     <Clock className="w-4 h-4" />
                     <span>{labels.estimatedDelivery}: {deliveryInfo.etaText}</span>
                   </div>
+                  {!deliveryInfo.isFree && (
+                    <div className="text-xs text-gray-500 mt-2">
+                      {getWeightPriceBreakdown(totalWeightKg, language)}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

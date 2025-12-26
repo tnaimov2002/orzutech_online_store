@@ -10,7 +10,8 @@ import {
   Gift,
   ChevronRight,
   Check,
-  ExternalLink
+  ExternalLink,
+  Scale
 } from 'lucide-react';
 import { StoreLocation } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -236,6 +237,11 @@ export default function Checkout() {
   const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
   const total = subtotal + deliveryFee;
 
+  const totalWeightKg = items.reduce((sum, item) => {
+    const weight = item.product.weight_kg || 0.5;
+    return sum + (weight * item.quantity);
+  }, 0);
+
   return (
     <div className="min-h-screen pt-24 pb-12 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4">
@@ -411,6 +417,7 @@ export default function Checkout() {
 
                   <AddressSelection
                     onAddressChange={handleAddressChange}
+                    totalWeightKg={totalWeightKg}
                   />
 
                   {errors.address && (
@@ -544,6 +551,13 @@ export default function Checkout() {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">{t.cart.subtotal}</span>
                     <span className="font-medium">{formatPrice(subtotal)} {t.common.sum}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <Scale className="w-3.5 h-3.5" />
+                      {language === 'uz' ? "Umumiy og'irlik" : language === 'ru' ? 'Общий вес' : 'Total weight'}
+                    </span>
+                    <span className="font-medium">{totalWeightKg.toFixed(1)} kg</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">{t.checkout.deliveryFee}</span>
