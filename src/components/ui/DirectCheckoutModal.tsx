@@ -25,8 +25,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice, generateOrderNumber } from '../../utils/format';
 import { validateEmail, sendOrderConfirmationEmail } from '../../utils/email';
-import AddressSelection, { AddressData } from '../checkout/AddressSelection';
-import { DeliveryInfo } from '../../services/addressService';
+import AddressSelection, { AddressData, DeliveryInfo } from '../checkout/AddressSelection';
 
 interface DirectCheckoutModalProps {
   isOpen: boolean;
@@ -117,7 +116,7 @@ export default function DirectCheckoutModal({
     }
   };
 
-  const handleAddressChange = useCallback((address: AddressData, delivery: DeliveryInfo) => {
+  const handleAddressChange = useCallback((address: AddressData | null, delivery: DeliveryInfo | null) => {
     setAddressData(address);
     setDeliveryInfo(delivery);
   }, []);

@@ -19,8 +19,7 @@ import { supabase } from '../lib/supabase';
 import { formatPrice, generateOrderNumber } from '../utils/format';
 import { validateEmail, sendOrderConfirmationEmail } from '../utils/email';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-import AddressSelection, { AddressData } from '../components/checkout/AddressSelection';
-import { DeliveryInfo } from '../services/addressService';
+import AddressSelection, { AddressData, DeliveryInfo } from '../components/checkout/AddressSelection';
 
 type DeliveryType = 'delivery' | 'pickup';
 
@@ -85,7 +84,7 @@ export default function Checkout() {
     }
   };
 
-  const handleAddressChange = useCallback((address: AddressData, delivery: DeliveryInfo) => {
+  const handleAddressChange = useCallback((address: AddressData | null, delivery: DeliveryInfo | null) => {
     setAddressData(address);
     setDeliveryInfo(delivery);
   }, []);
@@ -397,15 +396,15 @@ export default function Checkout() {
                     <ul className="space-y-1 text-sm text-orange-700">
                       <li className="flex items-center gap-2">
                         <Check className="w-4 h-4" />
-                        {language === 'uz' ? 'Buxoro shahrida - BEPUL' : language === 'ru' ? 'В городе Бухара - БЕСПЛАТНО' : 'In Bukhara city - FREE'}
+                        {language === 'uz' ? "Buxoro shahrida - BEPUL (24 soat ichida)" : language === 'ru' ? 'В городе Бухара - БЕСПЛАТНО (в течение 24 часов)' : 'In Bukhara city - FREE (within 24 hours)'}
                       </li>
                       <li className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
-                        {language === 'uz' ? 'Buxoro viloyati - 50,000 UZS dan' : language === 'ru' ? 'Бухарская область - от 50,000 UZS' : 'Bukhara region - from 50,000 UZS'}
+                        {language === 'uz' ? "Boshqa hududlar - 35,000 UZS dan (BTS pochta)" : language === 'ru' ? 'Другие регионы - от 35,000 UZS (BTS почта)' : 'Other regions - from 35,000 UZS (BTS postal)'}
                       </li>
                       <li className="flex items-center gap-2">
                         <Truck className="w-4 h-4" />
-                        {language === 'uz' ? 'Boshqa viloyatlar - 100,000 UZS dan' : language === 'ru' ? 'Другие области - от 100,000 UZS' : 'Other regions - from 100,000 UZS'}
+                        {language === 'uz' ? "Yetkazib berish vaqti: 48-72 soat" : language === 'ru' ? 'Время доставки: 48-72 часа' : 'Delivery time: 48-72 hours'}
                       </li>
                     </ul>
                   </div>

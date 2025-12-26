@@ -181,11 +181,11 @@ export default function DeliverySettings() {
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
           <div>
-            <h3 className="font-semibold text-orange-800">Yetkazib berish qoidalari</h3>
+            <h3 className="font-semibold text-orange-800">Yetkazib berish qoidalari (BTS pochta)</h3>
             <ul className="text-sm text-orange-700 mt-1 space-y-1">
               <li>Buxoro shahrida - BEPUL (24 soat ichida)</li>
-              <li>Buxoro viloyati - 50,000 UZS dan (48 soat ichida)</li>
-              <li>Boshqa viloyatlar - 100,000 UZS dan (48-72 soat)</li>
+              <li>Boshqa hududlar - 35,000 UZS dan (BTS pochta orqali)</li>
+              <li>Yetkazib berish vaqti: 48-72 soat</li>
             </ul>
           </div>
         </div>

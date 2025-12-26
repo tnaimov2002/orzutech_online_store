@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, ChevronDown, Loader2, AlertCircle, Check, Truck, Clock } from 'lucide-react';
+import { MapPin, ChevronDown, Loader2, Truck, Clock, Check, Package } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   Region,
   District,
-  Street,
-  DeliveryInfo,
-  CityOverride,
   fetchRegions,
   fetchDistricts,
-  fetchStreets,
-  fetchCityOverrides,
-  calculateDeliveryInfo,
 } from '../../services/addressService';
+import {
+  getBtsTariff,
+  formatBtsEta,
+  getBtsShippingMessage,
+  getDeliveryPriceMessage,
+  BtsTariff,
+} from '../../services/btsService';
 
 export interface AddressData {
   regionId: string;
@@ -21,58 +22,59 @@ export interface AddressData {
   regionName: string;
   district: string;
   street: string;
-  streetManual: string;
   addressDetails: string;
   fullAddress: string;
 }
 
+export interface DeliveryInfo {
+  price: number;
+  isFree: boolean;
+  etaHours: number;
+  etaText: string;
+  isFallback: boolean;
+  btsMessage: string | null;
+}
+
 interface AddressSelectionProps {
-  onAddressChange: (address: AddressData, deliveryInfo: DeliveryInfo) => void;
+  onAddressChange: (address: AddressData | null, deliveryInfo: DeliveryInfo | null) => void;
+  onDeliveryCalculated?: (deliveryInfo: DeliveryInfo) => void;
   compact?: boolean;
-  initialAddress?: Partial<AddressData>;
 }
 
 export default function AddressSelection({
   onAddressChange,
+  onDeliveryCalculated,
   compact = false,
-  initialAddress,
 }: AddressSelectionProps) {
   const { language } = useLanguage();
 
   const [regions, setRegions] = useState<Region[]>([]);
   const [districts, setDistricts] = useState<District[]>([]);
-  const [streets, setStreets] = useState<Street[]>([]);
-  const [cityOverrides, setCityOverrides] = useState<CityOverride[]>([]);
 
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
   const [selectedDistrict, setSelectedDistrict] = useState<string>('');
-  const [selectedStreet, setSelectedStreet] = useState<string>('');
-  const [manualStreet, setManualStreet] = useState<string>('');
+  const [street, setStreet] = useState<string>('');
   const [addressDetails, setAddressDetails] = useState<string>('');
 
   const [loadingRegions, setLoadingRegions] = useState(true);
   const [loadingDistricts, setLoadingDistricts] = useState(false);
-  const [loadingStreets, setLoadingStreets] = useState(false);
+  const [loadingTariff, setLoadingTariff] = useState(false);
 
-  const [streetFallback, setStreetFallback] = useState(false);
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
-
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [btsTariff, setBtsTariff] = useState<BtsTariff | null>(null);
 
   const labels = {
     region: language === 'uz' ? 'Viloyat' : language === 'ru' ? 'Область' : 'Region',
     district: language === 'uz' ? 'Tuman/Shahar' : language === 'ru' ? 'Район/Город' : 'District/City',
-    street: language === 'uz' ? 'Ko\'cha' : language === 'ru' ? 'Улица' : 'Street',
-    streetManual: language === 'uz' ? 'Ko\'cha nomi' : language === 'ru' ? 'Название улицы' : 'Street name',
+    street: language === 'uz' ? "Ko'cha yoki qishloq nomi" : language === 'ru' ? 'Улица или село' : 'Street or village name',
     addressDetails: language === 'uz' ? 'Uy, xonadon, qavat' : language === 'ru' ? 'Дом, квартира, этаж' : 'House, apt, floor',
     selectRegion: language === 'uz' ? 'Viloyatni tanlang' : language === 'ru' ? 'Выберите область' : 'Select region',
     selectDistrict: language === 'uz' ? 'Tuman/shaharni tanlang' : language === 'ru' ? 'Выберите район/город' : 'Select district/city',
-    selectStreet: language === 'uz' ? 'Ko\'chani tanlang' : language === 'ru' ? 'Выберите улицу' : 'Select street',
-    streetNotFound: language === 'uz' ? 'Ko\'cha topilmadi. Iltimos, qo\'lda kiriting.' : language === 'ru' ? 'Улица не найдена. Введите вручную.' : 'Street not found. Please enter manually.',
     loading: language === 'uz' ? 'Yuklanmoqda...' : language === 'ru' ? 'Загрузка...' : 'Loading...',
     freeDelivery: language === 'uz' ? 'Bepul yetkazib berish' : language === 'ru' ? 'Бесплатная доставка' : 'Free delivery',
     deliveryPrice: language === 'uz' ? 'Yetkazib berish narxi' : language === 'ru' ? 'Стоимость доставки' : 'Delivery price',
-    estimatedDelivery: language === 'uz' ? 'Taxminiy yetkazib berish' : language === 'ru' ? 'Ориентировочная доставка' : 'Estimated delivery',
+    estimatedDelivery: language === 'uz' ? 'Yetkazib berish vaqti' : language === 'ru' ? 'Время доставки' : 'Delivery time',
+    calculatingPrice: language === 'uz' ? 'Narx hisoblanmoqda...' : language === 'ru' ? 'Расчет стоимости...' : 'Calculating price...',
   };
 
   useEffect(() => {
@@ -84,67 +86,64 @@ export default function AddressSelection({
     const data = await fetchRegions();
     setRegions(data);
     setLoadingRegions(false);
-
-    if (initialAddress?.regionCode) {
-      const region = data.find(r => r.code === initialAddress.regionCode);
-      if (region) {
-        handleRegionSelect(region);
-      }
-    }
   };
 
   const handleRegionSelect = async (region: Region) => {
     setSelectedRegion(region);
     setSelectedDistrict('');
-    setSelectedStreet('');
-    setManualStreet('');
-    setStreetFallback(false);
+    setStreet('');
+    setAddressDetails('');
     setDistricts([]);
-    setStreets([]);
+    setDeliveryInfo(null);
+    setBtsTariff(null);
+    onAddressChange(null, null);
 
     setLoadingDistricts(true);
-    const [districtsData, overridesData] = await Promise.all([
-      fetchDistricts(region.code),
-      fetchCityOverrides(region.id),
-    ]);
+    const districtsData = await fetchDistricts(region.code);
     setDistricts(districtsData);
-    setCityOverrides(overridesData);
     setLoadingDistricts(false);
-
-    const info = calculateDeliveryInfo(region, '', overridesData, language);
-    setDeliveryInfo(info);
   };
 
   const handleDistrictSelect = async (districtName: string) => {
     setSelectedDistrict(districtName);
-    setSelectedStreet('');
-    setManualStreet('');
-    setStreetFallback(false);
-    setStreets([]);
 
-    if (selectedRegion) {
-      const info = calculateDeliveryInfo(selectedRegion, districtName, cityOverrides, language);
-      setDeliveryInfo(info);
-    }
+    if (!selectedRegion) return;
 
-    setLoadingStreets(true);
+    setLoadingTariff(true);
+
     try {
-      const streetsData = await fetchStreets(selectedRegion?.code || '', districtName);
-      if (streetsData.length === 0) {
-        setStreetFallback(true);
-      } else {
-        setStreets(streetsData);
-        setStreetFallback(false);
-      }
-    } catch {
-      setStreetFallback(true);
-    }
-    setLoadingStreets(false);
-  };
+      const tariff = await getBtsTariff(selectedRegion.code, districtName);
+      setBtsTariff(tariff);
 
-  const handleStreetSelect = (streetName: string) => {
-    setSelectedStreet(streetName);
-    setManualStreet('');
+      const etaText = formatBtsEta(tariff.etaHours, language);
+      const btsMessage = getBtsShippingMessage(selectedRegion.code, districtName, language);
+
+      const info: DeliveryInfo = {
+        price: tariff.price,
+        isFree: tariff.price === 0,
+        etaHours: tariff.etaHours,
+        etaText,
+        isFallback: tariff.isFallback,
+        btsMessage,
+      };
+
+      setDeliveryInfo(info);
+      onDeliveryCalculated?.(info);
+    } catch (error) {
+      console.error('Error calculating delivery:', error);
+      const fallbackInfo: DeliveryInfo = {
+        price: 35000,
+        isFree: false,
+        etaHours: 72,
+        etaText: formatBtsEta(72, language),
+        isFallback: true,
+        btsMessage: getBtsShippingMessage(selectedRegion.code, districtName, language),
+      };
+      setDeliveryInfo(fallbackInfo);
+      onDeliveryCalculated?.(fallbackInfo);
+    }
+
+    setLoadingTariff(false);
   };
 
   const buildFullAddress = useCallback((): string => {
@@ -155,20 +154,15 @@ export default function AddressSelection({
       parts.push(regionName);
     }
     if (selectedDistrict) parts.push(selectedDistrict);
-    if (selectedStreet) parts.push(selectedStreet);
-    if (manualStreet) parts.push(manualStreet);
+    if (street) parts.push(street);
     if (addressDetails) parts.push(addressDetails);
     return parts.join(', ');
-  }, [selectedRegion, selectedDistrict, selectedStreet, manualStreet, addressDetails, language]);
+  }, [selectedRegion, selectedDistrict, street, addressDetails, language]);
 
   useEffect(() => {
-    if (!selectedRegion || !selectedDistrict || !addressDetails) {
+    if (!selectedRegion || !selectedDistrict || !street || !addressDetails) {
       return;
     }
-
-    const streetValue = streetFallback ? manualStreet : selectedStreet;
-    if (!streetFallback && !selectedStreet) return;
-    if (streetFallback && !manualStreet) return;
 
     const regionName = language === 'uz' ? selectedRegion.name_uz :
       language === 'ru' ? selectedRegion.name_ru : selectedRegion.name_en;
@@ -178,33 +172,28 @@ export default function AddressSelection({
       regionCode: selectedRegion.code,
       regionName,
       district: selectedDistrict,
-      street: streetFallback ? '' : selectedStreet,
-      streetManual: streetFallback ? manualStreet : '',
+      street,
       addressDetails,
       fullAddress: buildFullAddress(),
     };
 
-    if (deliveryInfo) {
-      onAddressChange(addressData, deliveryInfo);
-    }
+    onAddressChange(addressData, deliveryInfo);
   }, [
     selectedRegion,
     selectedDistrict,
-    selectedStreet,
-    manualStreet,
+    street,
     addressDetails,
-    streetFallback,
     deliveryInfo,
     onAddressChange,
     buildFullAddress,
     language,
   ]);
 
-  const inputClass = (error?: string) =>
-    `w-full px-4 py-3 rounded-xl border ${error ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500 transition-colors`;
+  const inputClass = (hasError?: boolean) =>
+    `w-full px-4 py-3 rounded-xl border ${hasError ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500 transition-colors`;
 
-  const selectClass = (error?: string) =>
-    `w-full px-4 py-3 rounded-xl border ${error ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500 transition-colors appearance-none bg-white cursor-pointer`;
+  const selectClass = () =>
+    `w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500 transition-colors appearance-none bg-white cursor-pointer`;
 
   return (
     <div className={`space-y-${compact ? '4' : '5'}`}>
@@ -221,7 +210,7 @@ export default function AddressSelection({
                 if (region) handleRegionSelect(region);
               }}
               disabled={loadingRegions}
-              className={selectClass(errors.region)}
+              className={selectClass()}
             >
               <option value="">{labels.selectRegion}</option>
               {regions.map((region) => (
@@ -236,7 +225,6 @@ export default function AddressSelection({
               <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500 animate-spin" />
             )}
           </div>
-          {errors.region && <p className="text-red-500 text-xs mt-1">{errors.region}</p>}
         </div>
 
         <div>
@@ -248,7 +236,7 @@ export default function AddressSelection({
               value={selectedDistrict}
               onChange={(e) => handleDistrictSelect(e.target.value)}
               disabled={!selectedRegion || loadingDistricts}
-              className={selectClass(errors.district)}
+              className={selectClass()}
             >
               <option value="">{labels.selectDistrict}</option>
               {districts.map((district) => (
@@ -262,9 +250,69 @@ export default function AddressSelection({
               <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 text-orange-500 animate-spin" />
             )}
           </div>
-          {errors.district && <p className="text-red-500 text-xs mt-1">{errors.district}</p>}
         </div>
       </div>
+
+      <AnimatePresence>
+        {loadingTariff && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex items-center gap-2 text-orange-600 bg-orange-50 rounded-lg px-4 py-3"
+          >
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm font-medium">{labels.calculatingPrice}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deliveryInfo && !loadingTariff && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-3"
+          >
+            <div className={`rounded-xl p-4 ${deliveryInfo.isFree ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'}`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${deliveryInfo.isFree ? 'bg-green-100' : 'bg-orange-100'}`}>
+                  <Truck className={`w-5 h-5 ${deliveryInfo.isFree ? 'text-green-600' : 'text-orange-600'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-semibold ${deliveryInfo.isFree ? 'text-green-800' : 'text-orange-800'}`}>
+                      {labels.deliveryPrice}
+                    </span>
+                    {deliveryInfo.isFree ? (
+                      <span className="flex items-center gap-1 text-green-600 font-bold">
+                        <Check className="w-4 h-4" />
+                        {labels.freeDelivery}
+                      </span>
+                    ) : (
+                      <span className="text-orange-600 font-bold">
+                        {getDeliveryPriceMessage(deliveryInfo.price, false, deliveryInfo.isFallback, language)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-sm text-gray-600">
+                    <Clock className="w-4 h-4" />
+                    <span>{labels.estimatedDelivery}: {deliveryInfo.etaText}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {deliveryInfo.btsMessage && !deliveryInfo.isFree && (
+              <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 rounded-lg px-4 py-3 border border-blue-200">
+                <Package className="w-4 h-4 flex-shrink-0" />
+                <span>{deliveryInfo.btsMessage}</span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {selectedDistrict && (
@@ -274,65 +322,18 @@ export default function AddressSelection({
             exit={{ opacity: 0, height: 0 }}
             className="space-y-4"
           >
-            {loadingStreets ? (
-              <div className="flex items-center gap-2 text-gray-500 py-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">{labels.loading}</span>
-              </div>
-            ) : streetFallback ? (
-              <div>
-                <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2 mb-3">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm">{labels.streetNotFound}</span>
-                </div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {labels.streetManual} *
-                </label>
-                <input
-                  type="text"
-                  value={manualStreet}
-                  onChange={(e) => setManualStreet(e.target.value)}
-                  placeholder={language === 'uz' ? 'Masalan: Navoiy ko\'chasi' : language === 'ru' ? 'Например: улица Навои' : 'e.g. Navoiy street'}
-                  className={inputClass(errors.street)}
-                />
-                {errors.street && <p className="text-red-500 text-xs mt-1">{errors.street}</p>}
-              </div>
-            ) : streets.length > 0 ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {labels.street} *
-                </label>
-                <div className="relative">
-                  <select
-                    value={selectedStreet}
-                    onChange={(e) => handleStreetSelect(e.target.value)}
-                    className={selectClass(errors.street)}
-                  >
-                    <option value="">{labels.selectStreet}</option>
-                    {streets.map((street) => (
-                      <option key={street.name} value={street.name}>
-                        {street.displayName}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-                </div>
-                {errors.street && <p className="text-red-500 text-xs mt-1">{errors.street}</p>}
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {labels.streetManual} *
-                </label>
-                <input
-                  type="text"
-                  value={manualStreet}
-                  onChange={(e) => setManualStreet(e.target.value)}
-                  placeholder={language === 'uz' ? 'Ko\'cha nomini kiriting' : language === 'ru' ? 'Введите название улицы' : 'Enter street name'}
-                  className={inputClass(errors.street)}
-                />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {labels.street} *
+              </label>
+              <input
+                type="text"
+                value={street}
+                onChange={(e) => setStreet(e.target.value)}
+                placeholder={language === 'uz' ? "Masalan: Navoiy ko'chasi, Mustaqillik qishlog'i" : language === 'ru' ? 'Например: улица Навои, село Мустакиллик' : 'e.g. Navoiy street, Mustaqillik village'}
+                className={inputClass()}
+              />
+            </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -343,53 +344,14 @@ export default function AddressSelection({
                 value={addressDetails}
                 onChange={(e) => setAddressDetails(e.target.value)}
                 placeholder={language === 'uz' ? 'Uy 15, 3-xonadon, 2-qavat' : language === 'ru' ? 'Дом 15, кв. 3, 2-й этаж' : 'House 15, apt 3, 2nd floor'}
-                className={inputClass(errors.addressDetails)}
+                className={inputClass()}
               />
-              {errors.addressDetails && <p className="text-red-500 text-xs mt-1">{errors.addressDetails}</p>}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {deliveryInfo && selectedRegion && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className={`rounded-xl p-4 ${deliveryInfo.isFree ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'}`}
-          >
-            <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${deliveryInfo.isFree ? 'bg-green-100' : 'bg-orange-100'}`}>
-                <Truck className={`w-5 h-5 ${deliveryInfo.isFree ? 'text-green-600' : 'text-orange-600'}`} />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`font-semibold ${deliveryInfo.isFree ? 'text-green-800' : 'text-orange-800'}`}>
-                    {labels.deliveryPrice}
-                  </span>
-                  {deliveryInfo.isFree ? (
-                    <span className="flex items-center gap-1 text-green-600 font-bold">
-                      <Check className="w-4 h-4" />
-                      {labels.freeDelivery}
-                    </span>
-                  ) : (
-                    <span className="text-orange-600 font-bold">
-                      {deliveryInfo.price.toLocaleString()} UZS
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 text-sm text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span>{labels.estimatedDelivery}: {deliveryInfo.etaText}</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {selectedRegion && selectedDistrict && (selectedStreet || manualStreet) && addressDetails && (
+      {selectedRegion && selectedDistrict && street && addressDetails && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
