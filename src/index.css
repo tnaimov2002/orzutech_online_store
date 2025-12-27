@@ -1,31 +1,58 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geologica:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
 }
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  font-family: inherit;
 }
 
 html {
   scroll-behavior: smooth;
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 body {
   min-height: 100vh;
   background-color: #ffffff;
   color: #1f2937;
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+p, span, a, label, div {
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+button, input, textarea, select, option {
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+table, th, td, tr {
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+ul, ol, li {
+  font-family: 'Geologica', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 ::-webkit-scrollbar {
