@@ -15,6 +15,9 @@ import ProductDetail from './pages/ProductDetail';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import OrderSuccess from './pages/OrderSuccess';
+import About from './pages/About';
+import Services from './pages/Services';
+import Contact from './pages/Contact';
 
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -29,6 +32,7 @@ import Stores from './pages/admin/Stores';
 import DeliverySettings from './pages/admin/DeliverySettings';
 import LiveChat from './pages/admin/LiveChat';
 import AIManagement from './pages/admin/AIManagement';
+import CorporateContent from './pages/admin/CorporateContent';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -126,6 +130,30 @@ function App() {
                     </StorefrontLayout>
                   }
                 />
+                <Route
+                  path="/about"
+                  element={
+                    <StorefrontLayout>
+                      <About />
+                    </StorefrontLayout>
+                  }
+                />
+                <Route
+                  path="/services"
+                  element={
+                    <StorefrontLayout>
+                      <Services />
+                    </StorefrontLayout>
+                  }
+                />
+                <Route
+                  path="/contact"
+                  element={
+                    <StorefrontLayout>
+                      <Contact />
+                    </StorefrontLayout>
+                  }
+                />
 
                 <Route path="/admin/login" element={<AdminLogin />} />
                 <Route
@@ -147,6 +175,7 @@ function App() {
                   <Route path="delivery" element={<DeliverySettings />} />
                   <Route path="chat" element={<LiveChat />} />
                   <Route path="ai" element={<AIManagement />} />
+                  <Route path="corporate" element={<CorporateContent />} />
                 </Route>
 
                 <Route path="*" element={<Navigate to="/" replace />} />
