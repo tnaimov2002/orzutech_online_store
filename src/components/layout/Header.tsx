@@ -20,6 +20,7 @@ import { useCart } from '../../context/CartContext';
 import { Language, Category } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { getSemanticIcon } from '../../utils/categoryIcons';
+import SearchModal from '../ui/SearchModal';
 
 interface CategoryTreeNode extends Category {
   children: CategoryTreeNode[];
@@ -49,8 +50,7 @@ export default function Header() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [selectionPath, setSelectionPath] = useState<CategoryTreeNode[]>([]);
   const [mobileDrilldownStack, setMobileDrilldownStack] = useState<CategoryTreeNode[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const langMenuRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
@@ -198,13 +198,6 @@ export default function Header() {
     setSelectionPath([]);
     setIsMobileMenuOpen(false);
     setMobileDrilldownStack([]);
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      window.location.href = `/products?search=${encodeURIComponent(searchQuery.trim())}`;
-    }
   };
 
   const itemCount = getItemCount();
@@ -500,24 +493,18 @@ export default function Header() {
               })}
             </nav>
 
-            <form onSubmit={handleSearch} className="flex-1 max-w-md">
-              <div className={`relative flex items-center transition-all duration-300 ${isSearchFocused ? 'scale-[1.02]' : ''}`}>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onFocus={() => setIsSearchFocused(true)}
-                  onBlur={() => setIsSearchFocused(false)}
-                  placeholder={t.nav.search}
-                  className={`w-full pl-10 pr-4 py-2 bg-gray-100 border-2 rounded-xl text-sm transition-all duration-300 focus:outline-none ${
-                    isSearchFocused ? 'border-orange-500 bg-white shadow-lg shadow-orange-500/10' : 'border-transparent hover:bg-gray-200'
-                  }`}
-                />
-                <Search className={`absolute left-3 w-4 h-4 transition-colors duration-300 ${isSearchFocused ? 'text-orange-500' : 'text-gray-400'}`} />
-              </div>
-            </form>
+            <div className="flex-1" />
 
             <div className="flex items-center gap-3">
+              <motion.button
+                onClick={() => setIsSearchOpen(true)}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="relative p-2.5 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 transition-shadow"
+              >
+                <Search className="w-5 h-5" />
+              </motion.button>
+
               <Link to="/cart">
                 <motion.div
                   whileHover={{ scale: 1.05 }}
@@ -777,6 +764,8 @@ export default function Header() {
           )}
         </AnimatePresence>
       </div>
+
+      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
     </header>
   );
 }

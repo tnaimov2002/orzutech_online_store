@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Building2,
@@ -7,9 +7,7 @@ import {
   Award,
   Star,
   Users,
-  Image,
   Plus,
-  Edit2,
   Trash2,
   Save,
   X,
@@ -18,12 +16,14 @@ import {
   Mail,
   Eye,
   CheckCircle,
-  Upload,
-  Link as LinkIcon
+  AlertTriangle,
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 type TabType = 'timeline' | 'services' | 'achievements' | 'whychoose' | 'team' | 'brands' | 'sections' | 'messages';
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface TimelineEntry {
   id: string;
@@ -126,6 +126,13 @@ interface ContactMessage {
   created_at: string;
 }
 
+interface FormState<T> {
+  original: T;
+  edited: T;
+  isDirty: boolean;
+  saveStatus: SaveStatus;
+}
+
 const tabs: { key: TabType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'timeline', label: 'Tarix', icon: Clock },
   { key: 'services', label: 'Xizmatlar', icon: Wrench },
@@ -139,9 +146,130 @@ const tabs: { key: TabType; label: string; icon: React.ComponentType<{ className
 
 const iconOptions = ['Trophy', 'Users', 'Building', 'Lightbulb', 'Star', 'Shield', 'Zap', 'MessageCircle', 'Handshake', 'Package', 'BadgePercent', 'Award'];
 
+function UnsavedChangesModal({ isOpen, onSave, onDiscard, onCancel }: {
+  isOpen: boolean;
+  onSave: () => void;
+  onDiscard: () => void;
+  onCancel: () => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl border border-gray-700"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6 text-amber-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-white">Saqlanmagan o'zgarishlar</h3>
+            <p className="text-sm text-gray-400">O'zgarishlarni saqlash kerakmi?</p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onDiscard}
+            className="flex-1 px-4 py-2.5 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition-colors font-medium"
+          >
+            Bekor qilish
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2.5 bg-gray-600 text-white rounded-xl hover:bg-gray-500 transition-colors font-medium"
+          >
+            Orqaga
+          </button>
+          <button
+            onClick={onSave}
+            className="flex-1 px-4 py-2.5 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-colors font-medium"
+          >
+            Saqlash
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function SaveCancelButtons({ isDirty, saveStatus, onSave, onCancel }: {
+  isDirty: boolean;
+  saveStatus: SaveStatus;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 pt-4 border-t border-gray-600 mt-4">
+      <button
+        onClick={onCancel}
+        disabled={!isDirty || saveStatus === 'saving'}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          isDirty && saveStatus !== 'saving'
+            ? 'bg-gray-600 text-white hover:bg-gray-500'
+            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        <RotateCcw className="w-4 h-4" />
+        Bekor qilish
+      </button>
+
+      <button
+        onClick={onSave}
+        disabled={!isDirty || saveStatus === 'saving'}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          saveStatus === 'saving'
+            ? 'bg-orange-600 text-white cursor-wait'
+            : saveStatus === 'saved'
+            ? 'bg-green-600 text-white'
+            : saveStatus === 'error'
+            ? 'bg-red-600 text-white'
+            : isDirty
+            ? 'bg-orange-500 text-white hover:bg-orange-600'
+            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        {saveStatus === 'saving' ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Saqlanmoqda...
+          </>
+        ) : saveStatus === 'saved' ? (
+          <>
+            <CheckCircle className="w-4 h-4" />
+            Saqlandi
+          </>
+        ) : saveStatus === 'error' ? (
+          <>
+            <AlertTriangle className="w-4 h-4" />
+            Xatolik
+          </>
+        ) : (
+          <>
+            <Save className="w-4 h-4" />
+            Saqlash
+          </>
+        )}
+      </button>
+
+      {isDirty && (
+        <span className="text-xs text-amber-400 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" />
+          O'zgarishlar saqlanmagan
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function CorporateContent() {
   const [activeTab, setActiveTab] = useState<TabType>('timeline');
   const [loading, setLoading] = useState(true);
+  const [pendingTabChange, setPendingTabChange] = useState<TabType | null>(null);
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
 
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -153,8 +281,124 @@ export default function CorporateContent() {
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const [editingItem, setEditingItem] = useState<string | null>(null);
+  const [timelineForm, setTimelineForm] = useState<Map<string, FormState<TimelineEntry>>>(new Map());
+  const [servicesForm, setServicesForm] = useState<Map<string, FormState<Service>>>(new Map());
+  const [achievementsForm, setAchievementsForm] = useState<Map<string, FormState<Achievement>>>(new Map());
+  const [whyChooseForm, setWhyChooseForm] = useState<Map<string, FormState<WhyChooseUs>>>(new Map());
+  const [teamForm, setTeamForm] = useState<FormState<TeamInfo> | null>(null);
+  const [brandsForm, setBrandsForm] = useState<Map<string, FormState<Brand>>>(new Map());
+  const [sectionsForm, setSectionsForm] = useState<Map<string, FormState<PageSection>>>(new Map());
+
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  const initializeFormState = <T extends { id: string }>(items: T[]): Map<string, FormState<T>> => {
+    const map = new Map<string, FormState<T>>();
+    items.forEach(item => {
+      map.set(item.id, {
+        original: { ...item },
+        edited: { ...item },
+        isDirty: false,
+        saveStatus: 'idle'
+      });
+    });
+    return map;
+  };
+
+  const hasUnsavedChanges = useCallback((): boolean => {
+    const checkMap = <T,>(map: Map<string, FormState<T>>): boolean => {
+      for (const state of map.values()) {
+        if (state.isDirty) return true;
+      }
+      return false;
+    };
+
+    if (activeTab === 'timeline') return checkMap(timelineForm);
+    if (activeTab === 'services') return checkMap(servicesForm);
+    if (activeTab === 'achievements') return checkMap(achievementsForm);
+    if (activeTab === 'whychoose') return checkMap(whyChooseForm);
+    if (activeTab === 'team') return teamForm?.isDirty || false;
+    if (activeTab === 'brands') return checkMap(brandsForm);
+    if (activeTab === 'sections') return checkMap(sectionsForm);
+    return false;
+  }, [activeTab, timelineForm, servicesForm, achievementsForm, whyChooseForm, teamForm, brandsForm, sectionsForm]);
+
+  const handleTabChange = (newTab: TabType) => {
+    if (hasUnsavedChanges()) {
+      setPendingTabChange(newTab);
+      setShowUnsavedModal(true);
+    } else {
+      setActiveTab(newTab);
+    }
+  };
+
+  const handleSaveAndSwitch = async () => {
+    await saveAllChanges();
+    setShowUnsavedModal(false);
+    if (pendingTabChange) {
+      setActiveTab(pendingTabChange);
+      setPendingTabChange(null);
+    }
+  };
+
+  const handleDiscardAndSwitch = () => {
+    discardAllChanges();
+    setShowUnsavedModal(false);
+    if (pendingTabChange) {
+      setActiveTab(pendingTabChange);
+      setPendingTabChange(null);
+    }
+  };
+
+  const saveAllChanges = async () => {
+    if (activeTab === 'timeline') {
+      for (const [id, state] of timelineForm.entries()) {
+        if (state.isDirty) await saveTimeline(id);
+      }
+    }
+    if (activeTab === 'services') {
+      for (const [id, state] of servicesForm.entries()) {
+        if (state.isDirty) await saveService(id);
+      }
+    }
+    if (activeTab === 'achievements') {
+      for (const [id, state] of achievementsForm.entries()) {
+        if (state.isDirty) await saveAchievement(id);
+      }
+    }
+    if (activeTab === 'whychoose') {
+      for (const [id, state] of whyChooseForm.entries()) {
+        if (state.isDirty) await saveWhyChoose(id);
+      }
+    }
+    if (activeTab === 'team' && teamForm?.isDirty) await saveTeam();
+    if (activeTab === 'brands') {
+      for (const [id, state] of brandsForm.entries()) {
+        if (state.isDirty) await saveBrand(id);
+      }
+    }
+    if (activeTab === 'sections') {
+      for (const [id, state] of sectionsForm.entries()) {
+        if (state.isDirty) await saveSection(id);
+      }
+    }
+  };
+
+  const discardAllChanges = () => {
+    if (activeTab === 'timeline') setTimelineForm(initializeFormState(timeline));
+    if (activeTab === 'services') setServicesForm(initializeFormState(services));
+    if (activeTab === 'achievements') setAchievementsForm(initializeFormState(achievements));
+    if (activeTab === 'whychoose') setWhyChooseForm(initializeFormState(whyChooseUs));
+    if (activeTab === 'team' && teamInfo) {
+      setTeamForm({
+        original: { ...teamInfo },
+        edited: { ...teamInfo },
+        isDirty: false,
+        saveStatus: 'idle'
+      });
+    }
+    if (activeTab === 'brands') setBrandsForm(initializeFormState(brands));
+    if (activeTab === 'sections') setSectionsForm(initializeFormState(sections));
+  };
 
   useEffect(() => {
     fetchAllData();
@@ -182,13 +426,39 @@ export default function CorporateContent() {
       supabase.from('contact_messages').select('*').order('created_at', { ascending: false })
     ]);
 
-    if (timelineData) setTimeline(timelineData);
-    if (servicesData) setServices(servicesData);
-    if (achievementsData) setAchievements(achievementsData);
-    if (whyData) setWhyChooseUs(whyData);
-    if (teamData) setTeamInfo(teamData);
-    if (brandsData) setBrands(brandsData);
-    if (sectionsData) setSections(sectionsData);
+    if (timelineData) {
+      setTimeline(timelineData);
+      setTimelineForm(initializeFormState(timelineData));
+    }
+    if (servicesData) {
+      setServices(servicesData);
+      setServicesForm(initializeFormState(servicesData));
+    }
+    if (achievementsData) {
+      setAchievements(achievementsData);
+      setAchievementsForm(initializeFormState(achievementsData));
+    }
+    if (whyData) {
+      setWhyChooseUs(whyData);
+      setWhyChooseForm(initializeFormState(whyData));
+    }
+    if (teamData) {
+      setTeamInfo(teamData);
+      setTeamForm({
+        original: { ...teamData },
+        edited: { ...teamData },
+        isDirty: false,
+        saveStatus: 'idle'
+      });
+    }
+    if (brandsData) {
+      setBrands(brandsData);
+      setBrandsForm(initializeFormState(brandsData));
+    }
+    if (sectionsData) {
+      setSections(sectionsData);
+      setSectionsForm(initializeFormState(sectionsData));
+    }
     if (messagesData) {
       setMessages(messagesData);
       setUnreadCount(messagesData.filter(m => !m.is_read).length);
@@ -208,69 +478,393 @@ export default function CorporateContent() {
     });
   };
 
-  const updateTimeline = async (id: string, updates: Partial<TimelineEntry>) => {
-    const { error } = await supabase.from('company_timeline').update(updates).eq('id', id);
+  const updateTimelineField = (id: string, field: keyof TimelineEntry, value: unknown) => {
+    setTimelineForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveTimeline = async (id: string) => {
+    const state = timelineForm.get(id);
+    if (!state) return;
+
+    setTimelineForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('company_timeline').update(state.edited).eq('id', id);
+
+    setTimelineForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setTimelineForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
     if (!error) {
-      setTimeline(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-      setEditingItem(null);
+      setTimeline(prev => prev.map(t => t.id === id ? state.edited : t));
     }
   };
 
-  const updateService = async (id: string, updates: Partial<Service>) => {
-    const { error } = await supabase.from('company_services').update(updates).eq('id', id);
+  const cancelTimeline = (id: string) => {
+    setTimelineForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
+  };
+
+  const updateServiceField = (id: string, field: keyof Service, value: unknown) => {
+    setServicesForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveService = async (id: string) => {
+    const state = servicesForm.get(id);
+    if (!state) return;
+
+    setServicesForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('company_services').update(state.edited).eq('id', id);
+
+    setServicesForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setServicesForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
     if (!error) {
-      setServices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-      setEditingItem(null);
+      setServices(prev => prev.map(s => s.id === id ? state.edited : s));
     }
   };
 
-  const updateAchievement = async (id: string, updates: Partial<Achievement>) => {
-    const { error } = await supabase.from('company_achievements').update(updates).eq('id', id);
+  const cancelService = (id: string) => {
+    setServicesForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
+  };
+
+  const updateAchievementField = (id: string, field: keyof Achievement, value: unknown) => {
+    setAchievementsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveAchievement = async (id: string) => {
+    const state = achievementsForm.get(id);
+    if (!state) return;
+
+    setAchievementsForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('company_achievements').update(state.edited).eq('id', id);
+
+    setAchievementsForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setAchievementsForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
     if (!error) {
-      setAchievements(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
-      setEditingItem(null);
+      setAchievements(prev => prev.map(a => a.id === id ? state.edited : a));
     }
   };
 
-  const updateWhyChooseUs = async (id: string, updates: Partial<WhyChooseUs>) => {
-    const { error } = await supabase.from('why_choose_us').update(updates).eq('id', id);
+  const cancelAchievement = (id: string) => {
+    setAchievementsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
+  };
+
+  const updateWhyChooseField = (id: string, field: keyof WhyChooseUs, value: unknown) => {
+    setWhyChooseForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveWhyChoose = async (id: string) => {
+    const state = whyChooseForm.get(id);
+    if (!state) return;
+
+    setWhyChooseForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('why_choose_us').update(state.edited).eq('id', id);
+
+    setWhyChooseForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setWhyChooseForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
     if (!error) {
-      setWhyChooseUs(prev => prev.map(w => w.id === id ? { ...w, ...updates } : w));
-      setEditingItem(null);
+      setWhyChooseUs(prev => prev.map(w => w.id === id ? state.edited : w));
     }
   };
 
-  const updateTeam = async (updates: Partial<TeamInfo>) => {
-    if (!teamInfo) return;
-    const { error } = await supabase.from('company_team').update(updates).eq('id', teamInfo.id);
-    if (!error) {
-      setTeamInfo(prev => prev ? { ...prev, ...updates } : null);
-      setEditingItem(null);
+  const cancelWhyChoose = (id: string) => {
+    setWhyChooseForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
+  };
+
+  const updateTeamField = (field: keyof TeamInfo, value: unknown) => {
+    setTeamForm(prev => {
+      if (!prev) return prev;
+      const newEdited = { ...prev.edited, [field]: value };
+      const isDirty = JSON.stringify(newEdited) !== JSON.stringify(prev.original);
+      return { ...prev, edited: newEdited, isDirty, saveStatus: 'idle' };
+    });
+  };
+
+  const saveTeam = async () => {
+    if (!teamForm || !teamInfo) return;
+
+    setTeamForm(prev => prev ? { ...prev, saveStatus: 'saving' } : prev);
+
+    const { error } = await supabase.from('company_team').update(teamForm.edited).eq('id', teamInfo.id);
+
+    if (error) {
+      setTeamForm(prev => prev ? { ...prev, saveStatus: 'error' } : prev);
+    } else {
+      setTeamInfo(teamForm.edited);
+      setTeamForm({
+        original: { ...teamForm.edited },
+        edited: { ...teamForm.edited },
+        isDirty: false,
+        saveStatus: 'saved'
+      });
+      setTimeout(() => {
+        setTeamForm(prev => prev ? { ...prev, saveStatus: 'idle' } : prev);
+      }, 2000);
     }
   };
 
-  const updateBrand = async (id: string, updates: Partial<Brand>) => {
-    const { error } = await supabase.from('partner_brands').update(updates).eq('id', id);
+  const cancelTeam = () => {
+    setTeamForm(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        edited: { ...prev.original },
+        isDirty: false,
+        saveStatus: 'idle'
+      };
+    });
+  };
+
+  const updateBrandField = (id: string, field: keyof Brand, value: unknown) => {
+    setBrandsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveBrand = async (id: string) => {
+    const state = brandsForm.get(id);
+    if (!state) return;
+
+    setBrandsForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('partner_brands').update(state.edited).eq('id', id);
+
+    setBrandsForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setBrandsForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
     if (!error) {
-      setBrands(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
-      setEditingItem(null);
+      setBrands(prev => prev.map(b => b.id === id ? state.edited : b));
     }
   };
 
-  const updateSection = async (id: string, updates: Partial<PageSection>) => {
-    const { error } = await supabase.from('corporate_page_sections').update(updates).eq('id', id);
-    if (!error) {
-      setSections(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-      setEditingItem(null);
-    }
-  };
-
-  const markMessageRead = async (id: string) => {
-    const { error } = await supabase.from('contact_messages').update({ is_read: true }).eq('id', id);
-    if (!error) {
-      setMessages(prev => prev.map(m => m.id === id ? { ...m, is_read: true } : m));
-      setUnreadCount(prev => prev - 1);
-    }
+  const cancelBrand = (id: string) => {
+    setBrandsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
   };
 
   const addBrand = async () => {
@@ -280,7 +874,16 @@ export default function CorporateContent() {
     }).select().single();
     if (data && !error) {
       setBrands(prev => [...prev, data]);
-      setEditingItem(data.id);
+      setBrandsForm(prev => {
+        const newMap = new Map(prev);
+        newMap.set(data.id, {
+          original: { ...data },
+          edited: { ...data },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+        return newMap;
+      });
     }
   };
 
@@ -288,6 +891,88 @@ export default function CorporateContent() {
     const { error } = await supabase.from('partner_brands').delete().eq('id', id);
     if (!error) {
       setBrands(prev => prev.filter(b => b.id !== id));
+      setBrandsForm(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(id);
+        return newMap;
+      });
+    }
+  };
+
+  const updateSectionField = (id: string, field: keyof PageSection, value: unknown) => {
+    setSectionsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        const newEdited = { ...state.edited, [field]: value };
+        const isDirty = JSON.stringify(newEdited) !== JSON.stringify(state.original);
+        newMap.set(id, { ...state, edited: newEdited, isDirty, saveStatus: 'idle' });
+      }
+      return newMap;
+    });
+  };
+
+  const saveSection = async (id: string) => {
+    const state = sectionsForm.get(id);
+    if (!state) return;
+
+    setSectionsForm(prev => {
+      const newMap = new Map(prev);
+      newMap.set(id, { ...state, saveStatus: 'saving' });
+      return newMap;
+    });
+
+    const { error } = await supabase.from('corporate_page_sections').update(state.edited).eq('id', id);
+
+    setSectionsForm(prev => {
+      const newMap = new Map(prev);
+      if (error) {
+        newMap.set(id, { ...state, saveStatus: 'error' });
+      } else {
+        newMap.set(id, {
+          original: { ...state.edited },
+          edited: { ...state.edited },
+          isDirty: false,
+          saveStatus: 'saved'
+        });
+        setTimeout(() => {
+          setSectionsForm(p => {
+            const m = new Map(p);
+            const s = m.get(id);
+            if (s) m.set(id, { ...s, saveStatus: 'idle' });
+            return m;
+          });
+        }, 2000);
+      }
+      return newMap;
+    });
+
+    if (!error) {
+      setSections(prev => prev.map(s => s.id === id ? state.edited : s));
+    }
+  };
+
+  const cancelSection = (id: string) => {
+    setSectionsForm(prev => {
+      const newMap = new Map(prev);
+      const state = newMap.get(id);
+      if (state) {
+        newMap.set(id, {
+          ...state,
+          edited: { ...state.original },
+          isDirty: false,
+          saveStatus: 'idle'
+        });
+      }
+      return newMap;
+    });
+  };
+
+  const markMessageRead = async (id: string) => {
+    const { error } = await supabase.from('contact_messages').update({ is_read: true }).eq('id', id);
+    if (!error) {
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, is_read: true } : m));
+      setUnreadCount(prev => prev - 1);
     }
   };
 
@@ -301,6 +986,16 @@ export default function CorporateContent() {
 
   return (
     <div className="space-y-6">
+      <UnsavedChangesModal
+        isOpen={showUnsavedModal}
+        onSave={handleSaveAndSwitch}
+        onDiscard={handleDiscardAndSwitch}
+        onCancel={() => {
+          setShowUnsavedModal(false);
+          setPendingTabChange(null);
+        }}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Korporativ kontent</h1>
@@ -315,7 +1010,7 @@ export default function CorporateContent() {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabChange(tab.key)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 isActive
                   ? 'bg-orange-500 text-white'
@@ -338,250 +1033,280 @@ export default function CorporateContent() {
         {activeTab === 'timeline' && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Kompaniya tarixi</h2>
-            {timeline.map(entry => (
-              <div key={entry.id} className="bg-gray-700/50 rounded-xl overflow-hidden">
-                <div
-                  className="flex items-center justify-between p-4 cursor-pointer"
-                  onClick={() => toggleExpanded(entry.id)}
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="px-3 py-1 bg-orange-500 text-white font-bold rounded-lg">{entry.year}</span>
-                    <span className="text-white font-medium">{entry.title_uz}</span>
+            {timeline.map(entry => {
+              const formState = timelineForm.get(entry.id);
+              if (!formState) return null;
+              const { edited, isDirty, saveStatus } = formState;
+
+              return (
+                <div key={entry.id} className={`bg-gray-700/50 rounded-xl overflow-hidden ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                  <div
+                    className="flex items-center justify-between p-4 cursor-pointer"
+                    onClick={() => toggleExpanded(entry.id)}
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="px-3 py-1 bg-orange-500 text-white font-bold rounded-lg">{edited.year}</span>
+                      <span className="text-white font-medium">{edited.title_uz}</span>
+                      {isDirty && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">O'zgartirilgan</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 text-xs rounded ${edited.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-600 text-gray-400'}`}>
+                        {edited.is_active ? 'Faol' : 'Nofaol'}
+                      </span>
+                      {expandedItems.has(entry.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 text-xs rounded ${entry.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-600 text-gray-400'}`}>
-                      {entry.is_active ? 'Faol' : 'Nofaol'}
-                    </span>
-                    {expandedItems.has(entry.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
-                  </div>
+
+                  <AnimatePresence>
+                    {expandedItems.has(entry.id) && (
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Yil</label>
+                              <input
+                                type="number"
+                                value={edited.year}
+                                onChange={(e) => updateTimelineField(entry.id, 'year', parseInt(e.target.value))}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Rasm URL</label>
+                              <input
+                                type="text"
+                                value={edited.image_url || ''}
+                                onChange={(e) => updateTimelineField(entry.id, 'image_url', e.target.value || null)}
+                                placeholder="https://..."
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
+                              <input
+                                type="text"
+                                value={edited.title_uz}
+                                onChange={(e) => updateTimelineField(entry.id, 'title_uz', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
+                              <input
+                                type="text"
+                                value={edited.title_ru}
+                                onChange={(e) => updateTimelineField(entry.id, 'title_ru', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
+                              <input
+                                type="text"
+                                value={edited.title_en}
+                                onChange={(e) => updateTimelineField(entry.id, 'title_en', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (UZ)</label>
+                              <textarea
+                                value={edited.description_uz}
+                                onChange={(e) => updateTimelineField(entry.id, 'description_uz', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (RU)</label>
+                              <textarea
+                                value={edited.description_ru}
+                                onChange={(e) => updateTimelineField(entry.id, 'description_ru', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (EN)</label>
+                              <textarea
+                                value={edited.description_en}
+                                onChange={(e) => updateTimelineField(entry.id, 'description_en', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={edited.is_active}
+                                onChange={(e) => updateTimelineField(entry.id, 'is_active', e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 focus:ring-offset-gray-800"
+                              />
+                              <span className="text-sm text-gray-300">Faol</span>
+                            </label>
+                          </div>
+
+                          <SaveCancelButtons
+                            isDirty={isDirty}
+                            saveStatus={saveStatus}
+                            onSave={() => saveTimeline(entry.id)}
+                            onCancel={() => cancelTimeline(entry.id)}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-
-                <AnimatePresence>
-                  {expandedItems.has(entry.id) && (
-                    <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: 'auto' }}
-                      exit={{ height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Yil</label>
-                            <input
-                              type="number"
-                              value={entry.year}
-                              onChange={(e) => updateTimeline(entry.id, { year: parseInt(e.target.value) })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Rasm URL</label>
-                            <input
-                              type="text"
-                              value={entry.image_url || ''}
-                              onChange={(e) => updateTimeline(entry.id, { image_url: e.target.value || null })}
-                              placeholder="https://..."
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
-                            <input
-                              type="text"
-                              value={entry.title_uz}
-                              onChange={(e) => updateTimeline(entry.id, { title_uz: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
-                            <input
-                              type="text"
-                              value={entry.title_ru}
-                              onChange={(e) => updateTimeline(entry.id, { title_ru: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
-                            <input
-                              type="text"
-                              value={entry.title_en}
-                              onChange={(e) => updateTimeline(entry.id, { title_en: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (UZ)</label>
-                            <textarea
-                              value={entry.description_uz}
-                              onChange={(e) => updateTimeline(entry.id, { description_uz: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (RU)</label>
-                            <textarea
-                              value={entry.description_ru}
-                              onChange={(e) => updateTimeline(entry.id, { description_ru: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (EN)</label>
-                            <textarea
-                              value={entry.description_en}
-                              onChange={(e) => updateTimeline(entry.id, { description_en: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex justify-end">
-                          <button
-                            onClick={() => updateTimeline(entry.id, { is_active: !entry.is_active })}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                              entry.is_active ? 'bg-gray-600 text-gray-300' : 'bg-green-600 text-white'
-                            }`}
-                          >
-                            {entry.is_active ? 'Nofaol qilish' : 'Faollashtirish'}
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {activeTab === 'services' && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Xizmatlar</h2>
-            {services.map(service => (
-              <div key={service.id} className="bg-gray-700/50 rounded-xl overflow-hidden">
-                <div
-                  className="flex items-center justify-between p-4 cursor-pointer"
-                  onClick={() => toggleExpanded(service.id)}
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="text-white font-medium">{service.title_uz}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 text-xs rounded ${service.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-600 text-gray-400'}`}>
-                      {service.is_active ? 'Faol' : 'Nofaol'}
-                    </span>
-                    {expandedItems.has(service.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
-                  </div>
-                </div>
+            {services.map(service => {
+              const formState = servicesForm.get(service.id);
+              if (!formState) return null;
+              const { edited, isDirty, saveStatus } = formState;
 
-                <AnimatePresence>
-                  {expandedItems.has(service.id) && (
-                    <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: 'auto' }}
-                      exit={{ height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
-                        <div>
-                          <label className="block text-xs text-gray-400 mb-1">Rasm URL</label>
-                          <input
-                            type="text"
-                            value={service.image_url || ''}
-                            onChange={(e) => updateService(service.id, { image_url: e.target.value || null })}
-                            placeholder="https://..."
-                            className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+              return (
+                <div key={service.id} className={`bg-gray-700/50 rounded-xl overflow-hidden ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                  <div
+                    className="flex items-center justify-between p-4 cursor-pointer"
+                    onClick={() => toggleExpanded(service.id)}
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-white font-medium">{edited.title_uz}</span>
+                      {isDirty && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">O'zgartirilgan</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 text-xs rounded ${edited.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-600 text-gray-400'}`}>
+                        {edited.is_active ? 'Faol' : 'Nofaol'}
+                      </span>
+                      {expandedItems.has(service.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {expandedItems.has(service.id) && (
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Rasm URL</label>
+                            <input
+                              type="text"
+                              value={edited.image_url || ''}
+                              onChange={(e) => updateServiceField(service.id, 'image_url', e.target.value || null)}
+                              placeholder="https://..."
+                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
+                              <input
+                                type="text"
+                                value={edited.title_uz}
+                                onChange={(e) => updateServiceField(service.id, 'title_uz', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
+                              <input
+                                type="text"
+                                value={edited.title_ru}
+                                onChange={(e) => updateServiceField(service.id, 'title_ru', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
+                              <input
+                                type="text"
+                                value={edited.title_en}
+                                onChange={(e) => updateServiceField(service.id, 'title_en', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (UZ)</label>
+                              <textarea
+                                value={edited.description_uz}
+                                onChange={(e) => updateServiceField(service.id, 'description_uz', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (RU)</label>
+                              <textarea
+                                value={edited.description_ru}
+                                onChange={(e) => updateServiceField(service.id, 'description_ru', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Tavsif (EN)</label>
+                              <textarea
+                                value={edited.description_en}
+                                onChange={(e) => updateServiceField(service.id, 'description_en', e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={edited.is_active}
+                                onChange={(e) => updateServiceField(service.id, 'is_active', e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 focus:ring-offset-gray-800"
+                              />
+                              <span className="text-sm text-gray-300">Faol</span>
+                            </label>
+                          </div>
+
+                          <SaveCancelButtons
+                            isDirty={isDirty}
+                            saveStatus={saveStatus}
+                            onSave={() => saveService(service.id)}
+                            onCancel={() => cancelService(service.id)}
                           />
                         </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
-                            <input
-                              type="text"
-                              value={service.title_uz}
-                              onChange={(e) => updateService(service.id, { title_uz: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
-                            <input
-                              type="text"
-                              value={service.title_ru}
-                              onChange={(e) => updateService(service.id, { title_ru: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
-                            <input
-                              type="text"
-                              value={service.title_en}
-                              onChange={(e) => updateService(service.id, { title_en: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (UZ)</label>
-                            <textarea
-                              value={service.description_uz}
-                              onChange={(e) => updateService(service.id, { description_uz: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (RU)</label>
-                            <textarea
-                              value={service.description_ru}
-                              onChange={(e) => updateService(service.id, { description_ru: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Tavsif (EN)</label>
-                            <textarea
-                              value={service.description_en}
-                              onChange={(e) => updateService(service.id, { description_en: e.target.value })}
-                              rows={3}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex justify-end">
-                          <button
-                            onClick={() => updateService(service.id, { is_active: !service.is_active })}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                              service.is_active ? 'bg-gray-600 text-gray-300' : 'bg-green-600 text-white'
-                            }`}
-                          >
-                            {service.is_active ? 'Nofaol qilish' : 'Faollashtirish'}
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -589,55 +1314,97 @@ export default function CorporateContent() {
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Yutuqlar</h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {achievements.map(achievement => (
-                <div key={achievement.id} className="bg-gray-700/50 rounded-xl p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <select
-                      value={achievement.icon}
-                      onChange={(e) => updateAchievement(achievement.id, { icon: e.target.value })}
-                      className="px-2 py-1 bg-gray-600 text-white text-sm rounded-lg focus:outline-none"
-                    >
-                      {iconOptions.map(icon => (
-                        <option key={icon} value={icon}>{icon}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => updateAchievement(achievement.id, { is_active: !achievement.is_active })}
-                      className={`p-1 rounded ${achievement.is_active ? 'text-green-400' : 'text-gray-500'}`}
-                    >
-                      <CheckCircle className="w-5 h-5" />
-                    </button>
+              {achievements.map(achievement => {
+                const formState = achievementsForm.get(achievement.id);
+                if (!formState) return null;
+                const { edited, isDirty, saveStatus } = formState;
+
+                return (
+                  <div key={achievement.id} className={`bg-gray-700/50 rounded-xl p-4 ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                    <div className="flex items-start justify-between mb-3">
+                      <select
+                        value={edited.icon}
+                        onChange={(e) => updateAchievementField(achievement.id, 'icon', e.target.value)}
+                        className="px-2 py-1 bg-gray-600 text-white text-sm rounded-lg focus:outline-none"
+                      >
+                        {iconOptions.map(icon => (
+                          <option key={icon} value={icon}>{icon}</option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-2">
+                        {isDirty && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">*</span>}
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={edited.is_active}
+                            onChange={(e) => updateAchievementField(achievement.id, 'is_active', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 focus:ring-offset-gray-800"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={edited.value || ''}
+                      onChange={(e) => updateAchievementField(achievement.id, 'value', e.target.value)}
+                      placeholder="Qiymat (masalan: 30,000+)"
+                      className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <input
+                      type="text"
+                      value={edited.title_uz}
+                      onChange={(e) => updateAchievementField(achievement.id, 'title_uz', e.target.value)}
+                      placeholder="Sarlavha (UZ)"
+                      className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <input
+                      type="text"
+                      value={edited.title_ru}
+                      onChange={(e) => updateAchievementField(achievement.id, 'title_ru', e.target.value)}
+                      placeholder="Sarlavha (RU)"
+                      className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <input
+                      type="text"
+                      value={edited.title_en}
+                      onChange={(e) => updateAchievementField(achievement.id, 'title_en', e.target.value)}
+                      placeholder="Sarlavha (EN)"
+                      className="w-full px-3 py-2 mb-3 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => cancelAchievement(achievement.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          isDirty && saveStatus !== 'saving'
+                            ? 'bg-gray-600 text-white hover:bg-gray-500'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <X className="w-3 h-3" />
+                        Bekor
+                      </button>
+                      <button
+                        onClick={() => saveAchievement(achievement.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          saveStatus === 'saving'
+                            ? 'bg-orange-600 text-white cursor-wait'
+                            : saveStatus === 'saved'
+                            ? 'bg-green-600 text-white'
+                            : isDirty
+                            ? 'bg-orange-500 text-white hover:bg-orange-600'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {saveStatus === 'saving' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        {saveStatus === 'saved' ? 'Saqlandi' : 'Saqlash'}
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    value={achievement.value || ''}
-                    onChange={(e) => updateAchievement(achievement.id, { value: e.target.value })}
-                    placeholder="Qiymat (masalan: 30,000+)"
-                    className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                  <input
-                    type="text"
-                    value={achievement.title_uz}
-                    onChange={(e) => updateAchievement(achievement.id, { title_uz: e.target.value })}
-                    placeholder="Sarlavha (UZ)"
-                    className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                  <input
-                    type="text"
-                    value={achievement.title_ru}
-                    onChange={(e) => updateAchievement(achievement.id, { title_ru: e.target.value })}
-                    placeholder="Sarlavha (RU)"
-                    className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                  <input
-                    type="text"
-                    value={achievement.title_en}
-                    onChange={(e) => updateAchievement(achievement.id, { title_en: e.target.value })}
-                    placeholder="Sarlavha (EN)"
-                    className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -646,55 +1413,104 @@ export default function CorporateContent() {
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Nega bizni tanlashadi</h2>
             <div className="grid md:grid-cols-2 gap-4">
-              {whyChooseUs.map(item => (
-                <div key={item.id} className="bg-gray-700/50 rounded-xl p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <select
-                      value={item.icon}
-                      onChange={(e) => updateWhyChooseUs(item.id, { icon: e.target.value })}
-                      className="px-2 py-1 bg-gray-600 text-white text-sm rounded-lg focus:outline-none"
-                    >
-                      {iconOptions.map(icon => (
-                        <option key={icon} value={icon}>{icon}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => updateWhyChooseUs(item.id, { is_active: !item.is_active })}
-                      className={`p-1 rounded ${item.is_active ? 'text-green-400' : 'text-gray-500'}`}
-                    >
-                      <CheckCircle className="w-5 h-5" />
-                    </button>
+              {whyChooseUs.map(item => {
+                const formState = whyChooseForm.get(item.id);
+                if (!formState) return null;
+                const { edited, isDirty, saveStatus } = formState;
+
+                return (
+                  <div key={item.id} className={`bg-gray-700/50 rounded-xl p-4 ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                    <div className="flex items-start justify-between mb-3">
+                      <select
+                        value={edited.icon}
+                        onChange={(e) => updateWhyChooseField(item.id, 'icon', e.target.value)}
+                        className="px-2 py-1 bg-gray-600 text-white text-sm rounded-lg focus:outline-none"
+                      >
+                        {iconOptions.map(icon => (
+                          <option key={icon} value={icon}>{icon}</option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-2">
+                        {isDirty && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">*</span>}
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={edited.is_active}
+                            onChange={(e) => updateWhyChooseField(item.id, 'is_active', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 focus:ring-offset-gray-800"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={edited.title_uz}
+                      onChange={(e) => updateWhyChooseField(item.id, 'title_uz', e.target.value)}
+                      placeholder="Sarlavha (UZ)"
+                      className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <textarea
+                      value={edited.description_uz}
+                      onChange={(e) => updateWhyChooseField(item.id, 'description_uz', e.target.value)}
+                      placeholder="Tavsif (UZ)"
+                      rows={2}
+                      className="w-full px-3 py-2 mb-3 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => cancelWhyChoose(item.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          isDirty && saveStatus !== 'saving'
+                            ? 'bg-gray-600 text-white hover:bg-gray-500'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <X className="w-3 h-3" />
+                        Bekor
+                      </button>
+                      <button
+                        onClick={() => saveWhyChoose(item.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          saveStatus === 'saving'
+                            ? 'bg-orange-600 text-white cursor-wait'
+                            : saveStatus === 'saved'
+                            ? 'bg-green-600 text-white'
+                            : isDirty
+                            ? 'bg-orange-500 text-white hover:bg-orange-600'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {saveStatus === 'saving' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        {saveStatus === 'saved' ? 'Saqlandi' : 'Saqlash'}
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    value={item.title_uz}
-                    onChange={(e) => updateWhyChooseUs(item.id, { title_uz: e.target.value })}
-                    placeholder="Sarlavha (UZ)"
-                    className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                  <textarea
-                    value={item.description_uz}
-                    onChange={(e) => updateWhyChooseUs(item.id, { description_uz: e.target.value })}
-                    placeholder="Tavsif (UZ)"
-                    rows={2}
-                    className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
-        {activeTab === 'team' && teamInfo && (
+        {activeTab === 'team' && teamForm && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Jamoa ma'lumotlari</h2>
-            <div className="bg-gray-700/50 rounded-xl p-6">
+            <div className={`bg-gray-700/50 rounded-xl p-6 ${teamForm.isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+              {teamForm.isDirty && (
+                <div className="mb-4 px-3 py-2 bg-amber-500/20 rounded-lg flex items-center gap-2 text-amber-400 text-sm">
+                  <AlertTriangle className="w-4 h-4" />
+                  O'zgarishlar saqlanmagan
+                </div>
+              )}
+
               <div className="mb-4">
                 <label className="block text-xs text-gray-400 mb-1">Rasm URL</label>
                 <input
                   type="text"
-                  value={teamInfo.image_url || ''}
-                  onChange={(e) => updateTeam({ image_url: e.target.value || null })}
+                  value={teamForm.edited.image_url || ''}
+                  onChange={(e) => updateTeamField('image_url', e.target.value || null)}
                   placeholder="https://..."
                   className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                 />
@@ -705,8 +1521,8 @@ export default function CorporateContent() {
                   <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
                   <input
                     type="text"
-                    value={teamInfo.title_uz}
-                    onChange={(e) => updateTeam({ title_uz: e.target.value })}
+                    value={teamForm.edited.title_uz}
+                    onChange={(e) => updateTeamField('title_uz', e.target.value)}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -714,8 +1530,8 @@ export default function CorporateContent() {
                   <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
                   <input
                     type="text"
-                    value={teamInfo.title_ru}
-                    onChange={(e) => updateTeam({ title_ru: e.target.value })}
+                    value={teamForm.edited.title_ru}
+                    onChange={(e) => updateTeamField('title_ru', e.target.value)}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -723,8 +1539,8 @@ export default function CorporateContent() {
                   <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
                   <input
                     type="text"
-                    value={teamInfo.title_en}
-                    onChange={(e) => updateTeam({ title_en: e.target.value })}
+                    value={teamForm.edited.title_en}
+                    onChange={(e) => updateTeamField('title_en', e.target.value)}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -734,8 +1550,8 @@ export default function CorporateContent() {
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Tavsif (UZ)</label>
                   <textarea
-                    value={teamInfo.description_uz}
-                    onChange={(e) => updateTeam({ description_uz: e.target.value })}
+                    value={teamForm.edited.description_uz}
+                    onChange={(e) => updateTeamField('description_uz', e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
                   />
@@ -743,8 +1559,8 @@ export default function CorporateContent() {
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Tavsif (RU)</label>
                   <textarea
-                    value={teamInfo.description_ru}
-                    onChange={(e) => updateTeam({ description_ru: e.target.value })}
+                    value={teamForm.edited.description_ru}
+                    onChange={(e) => updateTeamField('description_ru', e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
                   />
@@ -752,13 +1568,20 @@ export default function CorporateContent() {
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">Tavsif (EN)</label>
                   <textarea
-                    value={teamInfo.description_en}
-                    onChange={(e) => updateTeam({ description_en: e.target.value })}
+                    value={teamForm.edited.description_en}
+                    onChange={(e) => updateTeamField('description_en', e.target.value)}
                     rows={3}
                     className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
                   />
                 </div>
               </div>
+
+              <SaveCancelButtons
+                isDirty={teamForm.isDirty}
+                saveStatus={teamForm.saveStatus}
+                onSave={saveTeam}
+                onCancel={cancelTeam}
+              />
             </div>
           </div>
         )}
@@ -777,38 +1600,78 @@ export default function CorporateContent() {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {brands.map(brand => (
-                <div key={brand.id} className="bg-gray-700/50 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <button
-                      onClick={() => updateBrand(brand.id, { is_active: !brand.is_active })}
-                      className={`p-1 rounded ${brand.is_active ? 'text-green-400' : 'text-gray-500'}`}
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteBrand(brand.id)}
-                      className="p-1 text-red-400 hover:text-red-300"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              {brands.map(brand => {
+                const formState = brandsForm.get(brand.id);
+                if (!formState) return null;
+                const { edited, isDirty, saveStatus } = formState;
+
+                return (
+                  <div key={brand.id} className={`bg-gray-700/50 rounded-xl p-4 ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        {isDirty && <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">*</span>}
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={edited.is_active}
+                            onChange={(e) => updateBrandField(brand.id, 'is_active', e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-500 text-orange-500 focus:ring-orange-500 focus:ring-offset-gray-800"
+                          />
+                        </label>
+                      </div>
+                      <button
+                        onClick={() => deleteBrand(brand.id)}
+                        className="p-1 text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={edited.name}
+                      onChange={(e) => updateBrandField(brand.id, 'name', e.target.value)}
+                      placeholder="Brend nomi"
+                      className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <input
+                      type="text"
+                      value={edited.logo_url || ''}
+                      onChange={(e) => updateBrandField(brand.id, 'logo_url', e.target.value || null)}
+                      placeholder="Logo URL"
+                      className="w-full px-3 py-2 mb-3 bg-gray-600 text-white rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => cancelBrand(brand.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 p-1.5 rounded-lg text-xs transition-all ${
+                          isDirty && saveStatus !== 'saving'
+                            ? 'bg-gray-600 text-white hover:bg-gray-500'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        <X className="w-3 h-3 mx-auto" />
+                      </button>
+                      <button
+                        onClick={() => saveBrand(brand.id)}
+                        disabled={!isDirty || saveStatus === 'saving'}
+                        className={`flex-1 p-1.5 rounded-lg text-xs transition-all ${
+                          saveStatus === 'saving'
+                            ? 'bg-orange-600 text-white cursor-wait'
+                            : saveStatus === 'saved'
+                            ? 'bg-green-600 text-white'
+                            : isDirty
+                            ? 'bg-orange-500 text-white hover:bg-orange-600'
+                            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {saveStatus === 'saving' ? <Loader2 className="w-3 h-3 mx-auto animate-spin" /> : <Save className="w-3 h-3 mx-auto" />}
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    value={brand.name}
-                    onChange={(e) => updateBrand(brand.id, { name: e.target.value })}
-                    placeholder="Brend nomi"
-                    className="w-full px-3 py-2 mb-2 bg-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                  <input
-                    type="text"
-                    value={brand.logo_url || ''}
-                    onChange={(e) => updateBrand(brand.id, { logo_url: e.target.value || null })}
-                    placeholder="Logo URL"
-                    className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -816,106 +1679,120 @@ export default function CorporateContent() {
         {activeTab === 'sections' && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white mb-4">Sahifa sozlamalari</h2>
-            {sections.map(section => (
-              <div key={section.id} className="bg-gray-700/50 rounded-xl overflow-hidden">
-                <div
-                  className="flex items-center justify-between p-4 cursor-pointer"
-                  onClick={() => toggleExpanded(section.id)}
-                >
-                  <div className="flex items-center gap-4">
-                    <span className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded">{section.page_type}</span>
-                    <span className="text-white font-medium">{section.section_key}</span>
+            {sections.map(section => {
+              const formState = sectionsForm.get(section.id);
+              if (!formState) return null;
+              const { edited, isDirty, saveStatus } = formState;
+
+              return (
+                <div key={section.id} className={`bg-gray-700/50 rounded-xl overflow-hidden ${isDirty ? 'ring-2 ring-amber-500/50' : ''}`}>
+                  <div
+                    className="flex items-center justify-between p-4 cursor-pointer"
+                    onClick={() => toggleExpanded(section.id)}
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs rounded">{edited.page_type}</span>
+                      <span className="text-white font-medium">{edited.section_key}</span>
+                      {isDirty && <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">O'zgartirilgan</span>}
+                    </div>
+                    {expandedItems.has(section.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
                   </div>
-                  {expandedItems.has(section.id) ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+
+                  <AnimatePresence>
+                    {expandedItems.has(section.id) && (
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
+                              <input
+                                type="text"
+                                value={edited.title_uz}
+                                onChange={(e) => updateSectionField(section.id, 'title_uz', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
+                              <input
+                                type="text"
+                                value={edited.title_ru}
+                                onChange={(e) => updateSectionField(section.id, 'title_ru', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
+                              <input
+                                type="text"
+                                value={edited.title_en}
+                                onChange={(e) => updateSectionField(section.id, 'title_en', e.target.value)}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Taglavha (UZ)</label>
+                              <textarea
+                                value={edited.subtitle_uz}
+                                onChange={(e) => updateSectionField(section.id, 'subtitle_uz', e.target.value)}
+                                rows={2}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Taglavha (RU)</label>
+                              <textarea
+                                value={edited.subtitle_ru}
+                                onChange={(e) => updateSectionField(section.id, 'subtitle_ru', e.target.value)}
+                                rows={2}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">Taglavha (EN)</label>
+                              <textarea
+                                value={edited.subtitle_en}
+                                onChange={(e) => updateSectionField(section.id, 'subtitle_en', e.target.value)}
+                                rows={2}
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          {edited.section_key === 'video' && (
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">YouTube URL</label>
+                              <input
+                                type="text"
+                                value={edited.video_url || ''}
+                                onChange={(e) => updateSectionField(section.id, 'video_url', e.target.value || null)}
+                                placeholder="https://www.youtube.com/watch?v=..."
+                                className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
+                            </div>
+                          )}
+
+                          <SaveCancelButtons
+                            isDirty={isDirty}
+                            saveStatus={saveStatus}
+                            onSave={() => saveSection(section.id)}
+                            onCancel={() => cancelSection(section.id)}
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-
-                <AnimatePresence>
-                  {expandedItems.has(section.id) && (
-                    <motion.div
-                      initial={{ height: 0 }}
-                      animate={{ height: 'auto' }}
-                      exit={{ height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="p-4 pt-0 space-y-4 border-t border-gray-600">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (UZ)</label>
-                            <input
-                              type="text"
-                              value={section.title_uz}
-                              onChange={(e) => updateSection(section.id, { title_uz: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (RU)</label>
-                            <input
-                              type="text"
-                              value={section.title_ru}
-                              onChange={(e) => updateSection(section.id, { title_ru: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Sarlavha (EN)</label>
-                            <input
-                              type="text"
-                              value={section.title_en}
-                              onChange={(e) => updateSection(section.id, { title_en: e.target.value })}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Taglavha (UZ)</label>
-                            <textarea
-                              value={section.subtitle_uz}
-                              onChange={(e) => updateSection(section.id, { subtitle_uz: e.target.value })}
-                              rows={2}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Taglavha (RU)</label>
-                            <textarea
-                              value={section.subtitle_ru}
-                              onChange={(e) => updateSection(section.id, { subtitle_ru: e.target.value })}
-                              rows={2}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">Taglavha (EN)</label>
-                            <textarea
-                              value={section.subtitle_en}
-                              onChange={(e) => updateSection(section.id, { subtitle_en: e.target.value })}
-                              rows={2}
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-                            />
-                          </div>
-                        </div>
-
-                        {section.section_key === 'video' && (
-                          <div>
-                            <label className="block text-xs text-gray-400 mb-1">YouTube URL</label>
-                            <input
-                              type="text"
-                              value={section.video_url || ''}
-                              onChange={(e) => updateSection(section.id, { video_url: e.target.value || null })}
-                              placeholder="https://www.youtube.com/watch?v=..."
-                              className="w-full px-3 py-2 bg-gray-600 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
