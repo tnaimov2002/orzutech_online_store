@@ -323,7 +323,7 @@ export default function Header() {
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-50">
-        <div className={`hidden md:block transition-all duration-300 ${isScrolled ? 'bg-gray-900' : 'bg-gray-900/95 backdrop-blur-sm'}`}>
+        <div className={`hidden md:block transition-all duration-300 relative z-10 ${isScrolled ? 'bg-gray-900' : 'bg-gray-900/95 backdrop-blur-sm'}`}>
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex items-center justify-between h-12">
               <Link to="/" className="flex items-center gap-2 group">
