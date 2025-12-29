@@ -13,12 +13,16 @@
 node moysklad/full_products_import.ts
 ```
 
-## Регулярная синхронизация (Edge Function)
+## Edge Functions (Supabase)
 
-`moysklad/sync_recent_products_and_stock.ts` — Supabase Edge Function.
-Ее нужно задеплоить и запускать по крону через Supabase (Cron extension).
-Функция обновляет последние 100 товаров и затем обновляет все остатки через RPC
-ниже.
+Все Edge функции находятся в `supabase/functions/`.
+
+`moysklad-sync-products` — обновляет последние 100 товаров и затем все остатки.
+Запускается по крону через Supabase (Cron extension).
+
+`moysklad-sync-categories` — синхронизирует категории.
+
+`moysklad-handle-product-delete` — вебхук на удаление товаров.
 
 ```sql
 create or replace function public.update_products_stock(payload jsonb)
@@ -32,9 +36,11 @@ as $$
 $$;
 ```
 
-## Вебхук
+## Вебхук удаления
 
-`supabase functions deploy handle-product-delete --no-verify-jwt`
+Функция: `supabase/functions/moysklad-handle-product-delete`.
+Вебхук в МойСклад должен указывать на URL этой функции и отправлять `DELETE`
+события по товарам.
 
 Создать вебхук
 
@@ -46,7 +52,7 @@ curl --compressed -X POST \
   -H 'Cache-Control: no-cache' \
   -H 'Content-Type: application/json' \
   -d '{
-    "url": "https://webhook.site/97060ff7-e688-47b3-bfbe-6fd6a05538d7",
+    "url": "https://YOUR_PROJECT.supabase.co/functions/v1/moysklad-handle-product-delete",
     "action": "DELETE",
     "entityType": "product"
    }'
