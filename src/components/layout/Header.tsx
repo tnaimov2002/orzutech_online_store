@@ -559,7 +559,7 @@ export default function Header() {
         </div>
       </header>
 
-      <div className="h-14 md:h-[7.5rem]" />
+      <div className="h-14 md:h-28" />
 
       <AnimatePresence>
         {isMobileMenuOpen && (
