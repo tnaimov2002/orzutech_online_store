@@ -115,7 +115,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
-      <section className="pt-24 pb-8 px-4">
+      <section className="pb-8 px-4">
         <div className="max-w-7xl mx-auto">
           <BannerSlider />
         </div>
