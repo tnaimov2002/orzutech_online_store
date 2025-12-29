@@ -32,6 +32,14 @@ const LIMIT = 100;
 const STOCK_URL =
   "https://api.moysklad.ru/api/remap/1.2/report/stock/all/current";
 
+function extractUuid(href) {
+  if (typeof href !== "string") return null;
+  const match = href.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  );
+  return match ? match[0] : null;
+}
+
 /**
  * Finds a sale price value by price type id.
  * Mirrors: .salePrices[] | select(.priceType.id == "<id>") | .value
@@ -122,6 +130,7 @@ async function syncProducts() {
 
     const payload = rows.map((p) => ({
       moysklad_id: p.id,
+      category_id: extractUuid(p?.productFolder?.meta?.href),
       name: p.name,
       description: p.description ?? null,
       price: getSalePrice(

@@ -20,6 +20,14 @@ const PRODUCT_URL =
 const STOCK_URL =
   "https://api.moysklad.ru/api/remap/1.2/report/stock/all/current";
 
+function extractUuid(href) {
+  if (typeof href !== "string") return null;
+  const match = href.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  );
+  return match ? match[0] : null;
+}
+
 function getSalePrice(priceTypeId, salePrices) {
   if (!priceTypeId || !Array.isArray(salePrices)) return null;
 
@@ -119,7 +127,9 @@ serve(async () => {
 
     const parseStart = Date.now();
     const data = await res.json();
-    console.log(`[MOYSKLAD] Product JSON parsed (${Date.now() - parseStart} ms)`);
+    console.log(
+      `[MOYSKLAD] Product JSON parsed (${Date.now() - parseStart} ms)`,
+    );
 
     const rows = Array.isArray(data?.rows) ? data.rows : [];
     console.log(`[MOYSKLAD] Received ${rows.length} products`);
@@ -128,6 +138,7 @@ serve(async () => {
       const stock = stockById.get(p.id);
       const base = {
         moysklad_id: p.id,
+        category_id: extractUuid(p?.productFolder?.meta?.href),
         name: p.name,
         description: p.description ?? null,
         price: getSalePrice(
@@ -180,7 +191,9 @@ serve(async () => {
       if (stockError) {
         console.error("[DB] Stock update failed:", stockError);
         return new Response(
-          JSON.stringify({ error: `DB stock update error: ${stockError.message}` }),
+          JSON.stringify({
+            error: `DB stock update error: ${stockError.message}`,
+          }),
           { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -200,9 +213,9 @@ serve(async () => {
     );
   } catch (error) {
     console.error("[ERROR] Update failed:", error);
-    return new Response(
-      JSON.stringify({ error: "Unexpected error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "Unexpected error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 });
