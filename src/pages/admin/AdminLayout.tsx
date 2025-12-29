@@ -9,12 +9,14 @@ import {
   FolderTree,
   Image,
   Store,
-  Settings,
+  Truck,
   LogOut,
   Menu,
-  X,
   Globe,
-  ChevronDown
+  ChevronDown,
+  MessageCircle,
+  Sparkles,
+  Building2
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAdmin } from '../../context/AdminContext';
@@ -65,11 +67,15 @@ export default function AdminLayout() {
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: t.admin.dashboard, exact: true },
     { path: '/admin/orders', icon: ShoppingCart, label: t.admin.orders },
+    { path: '/admin/chat', icon: MessageCircle, label: language === 'uz' ? 'Chat' : language === 'ru' ? 'Чат' : 'Chat' },
+    { path: '/admin/ai', icon: Sparkles, label: language === 'uz' ? 'AI Boshqaruvi' : language === 'ru' ? 'AI Управление' : 'AI Management' },
     { path: '/admin/products', icon: Package, label: t.admin.products },
     { path: '/admin/categories', icon: FolderTree, label: t.admin.categories },
     { path: '/admin/customers', icon: Users, label: t.admin.customers },
     { path: '/admin/banners', icon: Image, label: t.admin.banners },
     { path: '/admin/stores', icon: Store, label: t.admin.stores },
+    { path: '/admin/delivery', icon: Truck, label: language === 'uz' ? 'Yetkazib berish' : language === 'ru' ? 'Доставка' : 'Delivery' },
+    { path: '/admin/corporate', icon: Building2, label: language === 'uz' ? 'Korporativ' : language === 'ru' ? 'Корпоративный' : 'Corporate' },
   ];
 
   const currentLang = languages.find((l) => l.code === language);

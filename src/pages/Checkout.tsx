@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -10,7 +10,8 @@ import {
   Gift,
   ChevronRight,
   Check,
-  ExternalLink
+  ExternalLink,
+  Scale
 } from 'lucide-react';
 import { StoreLocation } from '../types';
 import { useLanguage } from '../context/LanguageContext';
@@ -19,13 +20,9 @@ import { supabase } from '../lib/supabase';
 import { formatPrice, generateOrderNumber } from '../utils/format';
 import { validateEmail, sendOrderConfirmationEmail } from '../utils/email';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import AddressSelection, { AddressData, DeliveryInfo } from '../components/checkout/AddressSelection';
 
 type DeliveryType = 'delivery' | 'pickup';
-
-const regions = [
-  'Buxoro', 'Toshkent', 'Samarqand', 'Farg\'ona', 'Andijon', 'Namangan',
-  'Qashqadaryo', 'Surxondaryo', 'Navoiy', 'Xorazm', 'Jizzax', 'Sirdaryo', 'Qoraqalpog\'iston'
-];
 
 export default function Checkout() {
   const { t, language, getLocalizedField } = useLanguage();
@@ -37,20 +34,21 @@ export default function Checkout() {
   const [selectedStore, setSelectedStore] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [emailError, setEmailError] = useState('');
   const [orderCompleted, setOrderCompleted] = useState(false);
+
+  const [addressData, setAddressData] = useState<AddressData | null>(null);
+  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
 
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
     phone: '',
     email: '',
-    region: '',
-    city: '',
-    address: '',
     notes: '',
     giftWrapping: false,
   });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (orderCompleted) return;
@@ -76,29 +74,49 @@ export default function Checkout() {
     setLoading(false);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
     setFormData((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
     }));
-    if (name === 'email') {
-      setEmailError('');
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: '' }));
     }
+  };
+
+  const handleAddressChange = useCallback((address: AddressData | null, delivery: DeliveryInfo | null) => {
+    setAddressData(address);
+    setDeliveryInfo(delivery);
+  }, []);
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = language === 'uz' ? 'Ism majburiy' : language === 'ru' ? 'Имя обязательно' : 'First name is required';
+    }
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = language === 'uz' ? 'Familiya majburiy' : language === 'ru' ? 'Фамилия обязательна' : 'Last name is required';
+    }
+    if (!formData.phone.trim()) {
+      newErrors.phone = language === 'uz' ? 'Telefon majburiy' : language === 'ru' ? 'Телефон обязателен' : 'Phone is required';
+    }
+    if (formData.email && !validateEmail(formData.email)) {
+      newErrors.email = language === 'uz' ? "To'g'ri email kiriting" : language === 'ru' ? 'Введите корректный email' : 'Enter a valid email';
+    }
+
+    if (deliveryType === 'delivery' && !addressData) {
+      newErrors.address = language === 'uz' ? 'Manzilni to\'liq kiriting' : language === 'ru' ? 'Заполните адрес полностью' : 'Please complete the address';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!formData.email.trim()) {
-      setEmailError(language === 'uz' ? 'Email majburiy' : language === 'ru' ? 'Email обязателен' : 'Email is required');
-      return;
-    }
-
-    if (!validateEmail(formData.email)) {
-      setEmailError(language === 'uz' ? "To'g'ri email manzilini kiriting" : language === 'ru' ? 'Введите корректный email адрес' : 'Please enter a valid email address');
-      return;
-    }
+    if (!validateForm()) return;
 
     setSubmitting(true);
 
@@ -109,10 +127,10 @@ export default function Checkout() {
           first_name: formData.firstName,
           last_name: formData.lastName,
           phone: formData.phone,
-          email: formData.email,
-          region: formData.region || null,
-          city: formData.city || null,
-          address: formData.address || null,
+          email: formData.email || null,
+          region: addressData?.regionName || null,
+          city: addressData?.district || null,
+          address: addressData?.fullAddress || null,
         })
         .select()
         .single();
@@ -120,11 +138,9 @@ export default function Checkout() {
       if (customerError) throw customerError;
 
       const orderNumber = generateOrderNumber();
-      const total = getTotal();
-
-      const deliveryAddress = deliveryType === 'delivery'
-        ? `${formData.region}, ${formData.city}, ${formData.address}`
-        : null;
+      const subtotal = getTotal();
+      const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
+      const total = subtotal + deliveryFee;
 
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
@@ -133,11 +149,11 @@ export default function Checkout() {
           customer_id: customerData.id,
           status: 'new',
           delivery_type: deliveryType,
-          delivery_address: deliveryAddress,
+          delivery_address: deliveryType === 'delivery' ? addressData?.fullAddress : null,
           store_location_id: deliveryType === 'pickup' ? selectedStore : null,
-          subtotal: total,
-          delivery_fee: 0,
-          total: total,
+          subtotal,
+          delivery_fee: deliveryFee,
+          total,
           notes: formData.notes || null,
           gift_wrapping: formData.giftWrapping,
         })
@@ -176,26 +192,28 @@ export default function Checkout() {
         }
       }
 
-      await sendOrderConfirmationEmail({
-        to: formData.email,
-        customerName: `${formData.firstName} ${formData.lastName}`,
-        orderNumber: orderNumber,
-        orderItems: orderItems.map(item => ({
-          product_name: item.product_name,
-          product_image: item.product_image,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total_price: item.total_price,
-          variant_info: item.variant_info,
-        })),
-        subtotal: total,
-        deliveryFee: 0,
-        total: total,
-        deliveryType: deliveryType,
-        deliveryAddress: deliveryAddress,
-        storeName: storeName,
-        language: language as 'uz' | 'ru' | 'en',
-      });
+      if (formData.email) {
+        await sendOrderConfirmationEmail({
+          to: formData.email,
+          customerName: `${formData.firstName} ${formData.lastName}`,
+          orderNumber: orderNumber,
+          orderItems: orderItems.map(item => ({
+            product_name: item.product_name,
+            product_image: item.product_image,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: item.total_price,
+            variant_info: item.variant_info,
+          })),
+          subtotal,
+          deliveryFee,
+          total,
+          deliveryType: deliveryType,
+          deliveryAddress: addressData?.fullAddress || null,
+          storeName: storeName,
+          language: language as 'uz' | 'ru' | 'en',
+        });
+      }
 
       setOrderCompleted(true);
       clearCart();
@@ -215,7 +233,14 @@ export default function Checkout() {
     );
   }
 
-  const total = getTotal();
+  const subtotal = getTotal();
+  const deliveryFee = deliveryType === 'delivery' ? (deliveryInfo?.price || 0) : 0;
+  const total = subtotal + deliveryFee;
+
+  const totalWeightKg = items.reduce((sum, item) => {
+    const weight = item.product.weight_kg || 0.5;
+    return sum + (weight * item.quantity);
+  }, 0);
 
   return (
     <div className="min-h-screen pt-24 pb-12 bg-gray-50">
@@ -258,7 +283,7 @@ export default function Checkout() {
                       </div>
                       <div>
                         <h3 className="font-semibold text-gray-900">{t.checkout.delivery}</h3>
-                        <p className="text-sm text-gray-500">{t.checkout.freeDelivery}</p>
+                        <p className="text-sm text-gray-500">{t.checkout.deliveryRules}</p>
                       </div>
                       {deliveryType === 'delivery' && (
                         <Check className="w-5 h-5 text-orange-500 ml-auto" />
@@ -295,11 +320,79 @@ export default function Checkout() {
                 </div>
               </motion.div>
 
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
+              >
+                <h2 className="text-xl font-bold text-gray-900 mb-6">
+                  {language === 'uz' ? 'Shaxsiy ma\'lumotlar' : language === 'ru' ? 'Личные данные' : 'Personal Information'}
+                </h2>
+
+                <div className="grid sm:grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t.checkout.firstName} *
+                    </label>
+                    <input
+                      type="text"
+                      name="firstName"
+                      value={formData.firstName}
+                      onChange={handleInputChange}
+                      className={`w-full px-4 py-3 rounded-xl border ${errors.firstName ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
+                    />
+                    {errors.firstName && <p className="text-red-500 text-xs mt-1">{errors.firstName}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t.checkout.lastName} *
+                    </label>
+                    <input
+                      type="text"
+                      name="lastName"
+                      value={formData.lastName}
+                      onChange={handleInputChange}
+                      className={`w-full px-4 py-3 rounded-xl border ${errors.lastName ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
+                    />
+                    {errors.lastName && <p className="text-red-500 text-xs mt-1">{errors.lastName}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t.checkout.phone} *
+                    </label>
+                    <input
+                      type="tel"
+                      name="phone"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      placeholder="+998 90 123 45 67"
+                      className={`w-full px-4 py-3 rounded-xl border ${errors.phone ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
+                    />
+                    {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {t.checkout.email} <span className="text-gray-400 font-normal">({language === 'uz' ? 'ixtiyoriy' : language === 'ru' ? 'необязательно' : 'optional'})</span>
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      placeholder="example@email.com"
+                      className={`w-full px-4 py-3 rounded-xl border ${errors.email ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
+                    />
+                    {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+                  </div>
+                </div>
+              </motion.div>
+
               {deliveryType === 'delivery' ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
+                  transition={{ delay: 0.3 }}
                   className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
                 >
                   <h2 className="text-xl font-bold text-gray-900 mb-6">{t.checkout.deliveryInfo}</h2>
@@ -309,118 +402,30 @@ export default function Checkout() {
                     <ul className="space-y-1 text-sm text-orange-700">
                       <li className="flex items-center gap-2">
                         <Check className="w-4 h-4" />
-                        {t.checkout.freeDelivery}
+                        {language === 'uz' ? "Buxoro shahrida - BEPUL (24 soat ichida)" : language === 'ru' ? 'В городе Бухара - БЕСПЛАТНО (в течение 24 часов)' : 'In Bukhara city - FREE (within 24 hours)'}
                       </li>
                       <li className="flex items-center gap-2">
                         <Clock className="w-4 h-4" />
-                        {t.checkout.bukharaDelivery}
+                        {language === 'uz' ? "Boshqa hududlar - 35,000 UZS dan (BTS pochta)" : language === 'ru' ? 'Другие регионы - от 35,000 UZS (BTS почта)' : 'Other regions - from 35,000 UZS (BTS postal)'}
                       </li>
                       <li className="flex items-center gap-2">
                         <Truck className="w-4 h-4" />
-                        {t.checkout.otherRegions}
+                        {language === 'uz' ? "Yetkazib berish vaqti: 48-72 soat" : language === 'ru' ? 'Время доставки: 48-72 часа' : 'Delivery time: 48-72 hours'}
                       </li>
                     </ul>
                   </div>
 
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <AddressSelection
+                    onAddressChange={handleAddressChange}
+                    totalWeightKg={totalWeightKg}
+                  />
+
+                  {errors.address && (
+                    <p className="text-red-500 text-sm mt-4">{errors.address}</p>
+                  )}
+
+                  <div className="mt-6 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.firstName} *
-                      </label>
-                      <input
-                        type="text"
-                        name="firstName"
-                        value={formData.firstName}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.lastName} *
-                      </label>
-                      <input
-                        type="text"
-                        name="lastName"
-                        value={formData.lastName}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.phone} *
-                      </label>
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        required
-                        placeholder="+998 90 123 45 67"
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.email} *
-                      </label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        placeholder="example@email.com"
-                        className={`w-full px-4 py-3 rounded-xl border ${emailError ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
-                      />
-                      {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.region} *
-                      </label>
-                      <select
-                        name="region"
-                        value={formData.region}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      >
-                        <option value="">{t.common.selectRegion}</option>
-                        {regions.map((region) => (
-                          <option key={region} value={region}>{region}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.city} *
-                      </label>
-                      <input
-                        type="text"
-                        name="city"
-                        value={formData.city}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.address} *
-                      </label>
-                      <input
-                        type="text"
-                        name="address"
-                        value={formData.address}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         {t.checkout.notes}
                       </label>
@@ -432,85 +437,27 @@ export default function Checkout() {
                         className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500 resize-none"
                       />
                     </div>
-                    <div className="sm:col-span-2">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          name="giftWrapping"
-                          checked={formData.giftWrapping}
-                          onChange={handleInputChange}
-                          className="w-5 h-5 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
-                        />
-                        <Gift className="w-5 h-5 text-orange-500" />
-                        <span className="font-medium text-gray-700">{t.checkout.giftWrapping}</span>
-                      </label>
-                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="giftWrapping"
+                        checked={formData.giftWrapping}
+                        onChange={handleInputChange}
+                        className="w-5 h-5 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                      />
+                      <Gift className="w-5 h-5 text-orange-500" />
+                      <span className="font-medium text-gray-700">{t.checkout.giftWrapping}</span>
+                    </label>
                   </div>
                 </motion.div>
               ) : (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
+                  transition={{ delay: 0.3 }}
                   className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100"
                 >
                   <h2 className="text-xl font-bold text-gray-900 mb-6">{t.checkout.selectStore}</h2>
-
-                  <div className="grid sm:grid-cols-2 gap-4 mb-6">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.firstName} *
-                      </label>
-                      <input
-                        type="text"
-                        name="firstName"
-                        value={formData.firstName}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.lastName} *
-                      </label>
-                      <input
-                        type="text"
-                        name="lastName"
-                        value={formData.lastName}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.phone} *
-                      </label>
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:border-orange-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t.checkout.email} *
-                      </label>
-                      <input
-                        type="email"
-                        name="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        placeholder="example@email.com"
-                        className={`w-full px-4 py-3 rounded-xl border ${emailError ? 'border-red-500' : 'border-gray-200'} focus:outline-none focus:border-orange-500`}
-                      />
-                      {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
-                    </div>
-                  </div>
 
                   <div className="space-y-4">
                     {storeLocations.map((store) => (
@@ -574,7 +521,7 @@ export default function Checkout() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.4 }}
                 className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 sticky top-24"
               >
                 <h2 className="text-xl font-bold text-gray-900 mb-6">{t.checkout.orderSummary}</h2>
@@ -603,12 +550,33 @@ export default function Checkout() {
                 <div className="border-t border-gray-100 pt-4 space-y-3 mb-6">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">{t.cart.subtotal}</span>
-                    <span className="font-medium">{formatPrice(total)} {t.common.sum}</span>
+                    <span className="font-medium">{formatPrice(subtotal)} {t.common.sum}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <Scale className="w-3.5 h-3.5" />
+                      {language === 'uz' ? "Umumiy og'irlik" : language === 'ru' ? 'Общий вес' : 'Total weight'}
+                    </span>
+                    <span className="font-medium">{totalWeightKg.toFixed(1)} kg</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">{t.checkout.deliveryFee}</span>
-                    <span className="font-medium text-green-600">{t.checkout.free}</span>
+                    {deliveryType === 'pickup' ? (
+                      <span className="font-medium text-green-600">{t.checkout.free}</span>
+                    ) : deliveryInfo?.isFree ? (
+                      <span className="font-medium text-green-600">{t.checkout.free}</span>
+                    ) : (
+                      <span className="font-medium">{formatPrice(deliveryFee)} {t.common.sum}</span>
+                    )}
                   </div>
+                  {deliveryType === 'delivery' && deliveryInfo && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">
+                        {language === 'uz' ? 'Yetkazib berish vaqti' : language === 'ru' ? 'Время доставки' : 'Delivery time'}
+                      </span>
+                      <span className="font-medium text-orange-600">{deliveryInfo.etaText}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-100">
                     <span className="text-gray-900">{t.cart.total}</span>
                     <span className="text-orange-500">{formatPrice(total)} {t.common.sum}</span>

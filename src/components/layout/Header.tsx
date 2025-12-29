@@ -9,28 +9,33 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Search,
+  Building2,
+  Wrench,
+  Mail
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useCart } from '../../context/CartContext';
 import { Language, Category } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { getSemanticIcon } from '../../utils/categoryIcons';
+import SearchModal from '../ui/SearchModal';
 
 interface CategoryTreeNode extends Category {
   children: CategoryTreeNode[];
-}
-
-interface PanelData {
-  categories: CategoryTreeNode[];
-  selectedId: string | null;
-  parentCategory: CategoryTreeNode | null;
 }
 
 const languages: { code: Language; name: string }[] = [
   { code: 'uz', name: "O'zbekcha" },
   { code: 'ru', name: 'Русский' },
   { code: 'en', name: 'English' },
+];
+
+const topNavLinks = [
+  { key: 'about', path: '/about', icon: Building2, label: { uz: 'Biz haqimizda', ru: 'О нас', en: 'About Us' } },
+  { key: 'services', path: '/services', icon: Wrench, label: { uz: 'Xizmatlarimiz', ru: 'Услуги', en: 'Services' } },
+  { key: 'contact', path: '/contact', icon: Mail, label: { uz: 'Aloqa', ru: 'Контакты', en: 'Contact' } },
 ];
 
 export default function Header() {
@@ -45,6 +50,7 @@ export default function Header() {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [selectionPath, setSelectionPath] = useState<CategoryTreeNode[]>([]);
   const [mobileDrilldownStack, setMobileDrilldownStack] = useState<CategoryTreeNode[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   const langMenuRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLDivElement>(null);
@@ -70,6 +76,17 @@ export default function Header() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMobileMenuOpen]);
 
   const buildCategoryTree = useCallback((flatCategories: Category[]): CategoryTreeNode[] => {
     const categoryMap = new Map<string, CategoryTreeNode>();
@@ -155,12 +172,8 @@ export default function Header() {
     });
   };
 
-  const isCategorySelectedAtLevel = (categoryId: string, level: number): boolean => {
-    return selectionPath[level]?.id === categoryId;
-  };
-
-  const buildPanels = (rootCategory: CategoryTreeNode): PanelData[] => {
-    const panels: PanelData[] = [];
+  const buildPanels = (rootCategory: CategoryTreeNode) => {
+    const panels: { categories: CategoryTreeNode[]; selectedId: string | null; parentCategory: CategoryTreeNode | null }[] = [];
 
     panels.push({
       categories: rootCategory.children,
@@ -198,6 +211,11 @@ export default function Header() {
     setMobileDrilldownStack([]);
   };
 
+  const closeMobileMenu = () => {
+    setIsMobileMenuOpen(false);
+    setMobileDrilldownStack([]);
+  };
+
   const itemCount = getItemCount();
   const currentLang = languages.find((l) => l.code === language);
 
@@ -221,7 +239,7 @@ export default function Header() {
     'bg-zinc-50'
   ];
 
-  const renderPanel = (panel: PanelData, panelIndex: number): React.ReactNode => {
+  const renderPanel = (panel: { categories: CategoryTreeNode[]; selectedId: string | null; parentCategory: CategoryTreeNode | null }, panelIndex: number): React.ReactNode => {
     const bgClass = panelBackgrounds[panelIndex % panelBackgrounds.length];
     const isFirstPanel = panelIndex === 0;
 
@@ -303,381 +321,441 @@ export default function Header() {
   };
 
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled
-          ? 'bg-white shadow-lg py-2'
-          : 'bg-white/95 backdrop-blur-sm py-4'
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 group">
-            <motion.img
-              src="/yulduz_orange.png"
-              alt="ORZUTECH Logo"
-              whileHover={{ scale: 1.05 }}
-              transition={{ duration: 0.3 }}
-              className="w-10 h-10 object-contain"
-            />
-            <span className="text-2xl font-bold text-orange-500 tracking-wide group-hover:opacity-80 transition-opacity">
-              ORZUTECH
-            </span>
-          </Link>
+    <>
+      <header className="fixed top-0 left-0 right-0 z-50">
+        <div className={`hidden md:block transition-all duration-300 ${isScrolled ? 'bg-gray-900' : 'bg-gray-900/95 backdrop-blur-sm'}`}>
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center justify-between h-12">
+              <Link to="/" className="flex items-center gap-2 group">
+                <motion.img
+                  src="/yulduz_orange.png"
+                  alt="ORZUTECH Logo"
+                  whileHover={{ scale: 1.05, rotate: 5 }}
+                  transition={{ duration: 0.3 }}
+                  className="w-8 h-8 object-contain"
+                />
+                <span className="text-xl font-bold text-white tracking-wide group-hover:text-orange-400 transition-colors">
+                  ORZUTECH
+                </span>
+              </Link>
 
-          <nav ref={navRef} className="hidden lg:flex items-center gap-2">
-            {headerCategories.map((category) => {
-              const hasChildren = category.children.length > 0;
-              const isOpen = openDropdown === category.id;
-              const isActive = location.search.includes(category.id);
+              <nav className="flex items-center gap-1">
+                {topNavLinks.map((link) => {
+                  const Icon = link.icon;
+                  const isActive = location.pathname === link.path;
+                  return (
+                    <Link
+                      key={link.key}
+                      to={link.path}
+                      className={`relative px-4 py-2 flex items-center gap-2 text-sm font-medium transition-all duration-300 group ${
+                        isActive ? 'text-orange-400' : 'text-gray-300 hover:text-white'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 transition-transform duration-300 group-hover:scale-110 ${isActive ? 'text-orange-400' : ''}`} />
+                      <span>{link.label[language]}</span>
+                      <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 bg-orange-500 rounded-full transition-all duration-300 ${
+                        isActive ? 'w-8' : 'w-0 group-hover:w-8'
+                      }`} />
+                    </Link>
+                  );
+                })}
+              </nav>
 
-              if (hasChildren) {
-                return (
-                  <div key={category.id} className="relative">
-                    <button
-                      onClick={(e) => toggleDropdown(category.id, e)}
-                      className="group relative px-4 py-2.5 flex items-center gap-2"
+              <div className="flex items-center gap-4">
+                <a
+                  href="tel:+998652000002"
+                  className="flex items-center gap-2 text-gray-300 hover:text-orange-400 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  <span className="text-sm font-medium">{t.nav.phone}</span>
+                </a>
+
+                <div ref={langMenuRef} className="relative">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
+                  >
+                    <Globe className="w-4 h-4" />
+                    <span className="text-xs font-medium">
+                      {currentLang?.code.toUpperCase()}
+                    </span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isLangMenuOpen ? 'rotate-180' : ''}`} />
+                  </motion.button>
+
+                  <AnimatePresence>
+                    {isLangMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute top-full right-0 mt-2 w-36 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-[100]"
+                      >
+                        {languages.map((lang) => (
+                          <button
+                            key={lang.code}
+                            onClick={() => {
+                              setLanguage(lang.code);
+                              setIsLangMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 hover:bg-orange-50 transition-colors ${
+                              language === lang.code ? 'bg-orange-50 text-orange-500' : 'text-gray-700'
+                            }`}
+                          >
+                            <span className="text-sm font-medium">{lang.name}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`transition-all duration-300 ${isScrolled ? 'bg-white shadow-lg' : 'bg-white/95 backdrop-blur-sm shadow-sm'}`}>
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center justify-between gap-4 h-14 md:h-16">
+              <Link to="/" className="md:hidden flex items-center gap-2 group">
+                <motion.img
+                  src="/yulduz_orange.png"
+                  alt="ORZUTECH Logo"
+                  whileHover={{ scale: 1.05 }}
+                  className="w-8 h-8 object-contain"
+                />
+                <span className="text-lg font-bold text-gray-900 tracking-wide">
+                  ORZUTECH
+                </span>
+              </Link>
+
+              <nav ref={navRef} className="hidden lg:flex items-center gap-1">
+                {headerCategories.map((category) => {
+                  const hasChildren = category.children.length > 0;
+                  const isOpen = openDropdown === category.id;
+                  const isActive = location.search.includes(category.id);
+
+                  if (hasChildren) {
+                    return (
+                      <div key={category.id} className="relative">
+                        <button
+                          onClick={(e) => toggleDropdown(category.id, e)}
+                          className="group relative px-3 py-2 flex items-center gap-2"
+                        >
+                          <span className="relative z-10 transition-transform duration-300 ease-out group-hover:scale-110">
+                            {renderCategoryIcon(category, 'sm')}
+                          </span>
+                          <span className={`relative z-10 text-sm font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
+                            isOpen || isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
+                          }`}>
+                            {getLocalizedField(category, 'name')}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 transition-all duration-300 ease-out ${
+                            isOpen ? 'rotate-180 text-orange-500' : isActive ? 'text-orange-500' : 'text-gray-500 group-hover:text-orange-500 group-hover:-translate-y-0.5'
+                          }`} />
+                          <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-300 ease-out ${
+                            isOpen || isActive ? 'w-6 opacity-100' : 'w-0 opacity-0 group-hover:w-6 group-hover:opacity-100'
+                          }`} />
+                          <span className={`absolute inset-0 rounded-xl transition-colors duration-300 ${
+                            isOpen ? 'bg-orange-500/10' : 'bg-orange-500/0 group-hover:bg-orange-500/5'
+                          }`} />
+                        </button>
+
+                        <AnimatePresence>
+                          {isOpen && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                              transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                              className="absolute top-full left-0 mt-3 z-[100]"
+                            >
+                              <div className="bg-white rounded-t-xl px-4 py-2.5 border-x border-t border-gray-100 shadow-sm">
+                                <Link
+                                  to={`/products?category=${category.id}`}
+                                  onClick={handleCategoryLinkClick}
+                                  className="text-sm font-semibold text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 group/link"
+                                >
+                                  {language === 'uz' ? 'Hammasini ko\'rish' : language === 'ru' ? 'Смотреть все' : 'View All'}
+                                  <ChevronRight className="w-4 h-4 transition-transform group-hover/link:translate-x-0.5" />
+                                </Link>
+                              </div>
+                              {renderMultiPanelDropdown(category)}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={category.id}
+                      to={`/products?category=${category.id}`}
+                      className="group relative px-3 py-2 flex items-center gap-2"
                     >
                       <span className="relative z-10 transition-transform duration-300 ease-out group-hover:scale-110">
                         {renderCategoryIcon(category, 'sm')}
                       </span>
-                      <span className={`relative z-10 text-[15px] font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
-                        isOpen || isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
+                      <span className={`relative z-10 text-sm font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
+                        isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
                       }`}>
                         {getLocalizedField(category, 'name')}
                       </span>
-                      <ChevronDown className={`w-4 h-4 transition-all duration-300 ease-out ${
-                        isOpen ? 'rotate-180 text-orange-500' : isActive ? 'text-orange-500' : 'text-gray-500 group-hover:text-orange-500 group-hover:-translate-y-0.5'
+                      <span className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-300 ease-out ${
+                        isActive ? 'w-6 opacity-100' : 'w-0 opacity-0 group-hover:w-6 group-hover:opacity-100'
                       }`} />
-                      <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-300 ease-out ${
-                        isOpen || isActive ? 'w-6 opacity-100' : 'w-0 opacity-0 group-hover:w-6 group-hover:opacity-100'
-                      }`} />
-                      <span className={`absolute inset-0 rounded-xl transition-colors duration-300 ${
-                        isOpen ? 'bg-orange-500/10' : 'bg-orange-500/0 group-hover:bg-orange-500/5'
-                      }`} />
-                    </button>
+                      <span className="absolute inset-0 rounded-xl bg-orange-500/0 group-hover:bg-orange-500/5 transition-colors duration-300" />
+                    </Link>
+                  );
+                })}
+              </nav>
 
-                    <AnimatePresence>
-                      {isOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                          transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                          className="absolute top-full left-0 mt-3 z-[100]"
-                        >
-                          <div className="bg-white rounded-t-xl px-4 py-2.5 border-x border-t border-gray-100 shadow-sm">
-                            <Link
-                              to={`/products?category=${category.id}`}
-                              onClick={handleCategoryLinkClick}
-                              className="text-sm font-semibold text-orange-500 hover:text-orange-600 transition-colors flex items-center gap-1 group/link"
-                            >
-                              {language === 'uz' ? 'Hammasini ko\'rish' : language === 'ru' ? 'Смотреть все' : 'View All'}
-                              <ChevronRight className="w-4 h-4 transition-transform group-hover/link:translate-x-0.5" />
-                            </Link>
-                          </div>
-                          {renderMultiPanelDropdown(category)}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                );
-              }
+              <div className="hidden md:block flex-1" />
 
-              return (
-                <Link
-                  key={category.id}
-                  to={`/products?category=${category.id}`}
-                  className="group relative px-4 py-2.5 flex items-center gap-2"
+              <div className="flex items-center gap-2 md:gap-3">
+                <motion.button
+                  onClick={() => setIsSearchOpen(true)}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="relative p-2 md:p-2.5 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 transition-shadow"
                 >
-                  <span className="relative z-10 transition-transform duration-300 ease-out group-hover:scale-110">
-                    {renderCategoryIcon(category, 'sm')}
-                  </span>
-                  <span className={`relative z-10 text-[15px] font-semibold tracking-wide transition-all duration-300 ease-out group-hover:-translate-y-0.5 inline-block ${
-                    isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
-                  }`}>
-                    {getLocalizedField(category, 'name')}
-                  </span>
-                  <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 h-0.5 bg-gradient-to-r from-orange-400 to-orange-600 rounded-full transition-all duration-300 ease-out ${
-                    isActive ? 'w-6 opacity-100' : 'w-0 opacity-0 group-hover:w-6 group-hover:opacity-100'
-                  }`} />
-                  <span className="absolute inset-0 rounded-xl bg-orange-500/0 group-hover:bg-orange-500/5 transition-colors duration-300" />
-                </Link>
-              );
-            })}
-          </nav>
+                  <Search className="w-5 h-5" />
+                </motion.button>
 
-          <div className="hidden md:flex items-center gap-2 text-gray-600">
-            <Phone className="w-5 h-5 text-orange-500" />
-            <span className="font-medium">{t.nav.phone}</span>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div ref={langMenuRef} className="relative">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <Globe className="w-5 h-5 text-gray-600" />
-                <span className="text-sm font-medium text-gray-700 hidden sm:inline">
-                  {currentLang?.code.toUpperCase()}
-                </span>
-                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isLangMenuOpen ? 'rotate-180' : ''}`} />
-              </motion.button>
-
-              <AnimatePresence>
-                {isLangMenuOpen && (
+                <Link to="/cart">
                   <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className="absolute top-full right-0 mt-2 w-40 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-[100]"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
                   >
-                    {languages.map((lang) => (
-                      <button
-                        key={lang.code}
-                        onClick={() => {
-                          setLanguage(lang.code);
-                          setIsLangMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-orange-50 transition-colors ${
-                          language === lang.code ? 'bg-orange-50 text-orange-500' : 'text-gray-700'
-                        }`}
+                    <ShoppingCart className="w-6 h-6 text-gray-700" />
+                    {itemCount > 0 && (
+                      <motion.span
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
                       >
-                        <span className="font-medium">{lang.name}</span>
-                      </button>
-                    ))}
+                        {itemCount}
+                      </motion.span>
+                    )}
                   </motion.div>
-                )}
-              </AnimatePresence>
+                </Link>
+
+                <button
+                  onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                  className="lg:hidden p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                >
+                  {isMobileMenuOpen ? (
+                    <X className="w-6 h-6 text-gray-700" />
+                  ) : (
+                    <Menu className="w-6 h-6 text-gray-700" />
+                  )}
+                </button>
+              </div>
             </div>
-
-            <Link to="/cart">
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ShoppingCart className="w-6 h-6 text-gray-700" />
-                {itemCount > 0 && (
-                  <motion.span
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center"
-                  >
-                    {itemCount}
-                  </motion.span>
-                )}
-              </motion.div>
-            </Link>
-
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              {isMobileMenuOpen ? (
-                <X className="w-6 h-6 text-gray-700" />
-              ) : (
-                <Menu className="w-6 h-6 text-gray-700" />
-              )}
-            </button>
           </div>
         </div>
+      </header>
 
-        <AnimatePresence>
-          {isMobileMenuOpen && (
+      <div className="h-14 md:h-[7.5rem]" />
+
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="lg:hidden mt-4 pb-4 border-t border-gray-100 max-h-[70vh] overflow-hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+              onClick={closeMobileMenu}
+            />
+
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed top-0 right-0 bottom-0 w-[85%] max-w-sm bg-white z-50 lg:hidden shadow-2xl flex flex-col"
             >
-              <div className="relative overflow-hidden">
+              <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                <Link to="/" onClick={closeMobileMenu} className="flex items-center gap-2">
+                  <img src="/yulduz_orange.png" alt="ORZUTECH" className="w-8 h-8 object-contain" />
+                  <span className="text-lg font-bold text-gray-900">ORZUTECH</span>
+                </Link>
+                <button
+                  onClick={closeMobileMenu}
+                  className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-6 h-6 text-gray-700" />
+                </button>
+              </div>
+
+              <div className="p-4 bg-gray-50 border-b border-gray-100">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  {language === 'uz' ? 'Sahifalar' : language === 'ru' ? 'Страницы' : 'Pages'}
+                </p>
+                <div className="grid grid-cols-1 gap-2">
+                  {topNavLinks.map((link) => {
+                    const Icon = link.icon;
+                    const isActive = location.pathname === link.path;
+                    return (
+                      <Link
+                        key={link.key}
+                        to={link.path}
+                        onClick={closeMobileMenu}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                          isActive
+                            ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25'
+                            : 'bg-white text-gray-700 hover:bg-orange-50 border border-gray-100'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                        {link.label[language]}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {mobileDrilldownStack.length === 0 ? (
-                    <motion.nav
+                    <motion.div
                       key="root-menu"
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -20 }}
-                      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                      className="flex flex-col pt-4 max-h-[60vh] overflow-y-auto"
+                      className="p-4"
                     >
-                      <div className="pt-2">
-                        {headerCategories.map((category, index) => {
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                        {language === 'uz' ? 'Kategoriyalar' : language === 'ru' ? 'Категории' : 'Categories'}
+                      </p>
+
+                      <div className="space-y-1">
+                        {headerCategories.map((category) => {
                           const hasChildren = category.children.length > 0;
                           const isActive = location.search.includes(category.id);
 
                           if (hasChildren) {
                             return (
-                              <motion.button
+                              <button
                                 key={category.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.05, duration: 0.2 }}
                                 onClick={() => handleMobileDrilldown(category)}
-                                className={`group w-full flex items-center justify-between mx-4 px-4 py-3.5 rounded-xl transition-all duration-300 active:scale-[0.98] ${
-                                  isActive
-                                    ? 'bg-gradient-to-r from-orange-50 to-orange-100/50'
-                                    : 'hover:bg-gray-50'
+                                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
+                                  isActive ? 'bg-orange-50' : 'hover:bg-gray-50'
                                 }`}
-                                style={{ width: 'calc(100% - 2rem)' }}
                               >
                                 <span className="flex items-center gap-3">
-                                  <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
+                                  <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
                                     {renderCategoryIcon(category, 'md')}
                                   </span>
-                                  <span className={`text-[15px] font-semibold tracking-wide transition-colors duration-300 ${
-                                    isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
-                                  }`}>
+                                  <span className={`text-sm font-semibold ${isActive ? 'text-orange-500' : 'text-gray-700'}`}>
                                     {getLocalizedField(category, 'name')}
                                   </span>
                                 </span>
-                                <ChevronRight className={`w-5 h-5 transition-all duration-300 ${
-                                  isActive ? 'text-orange-500' : 'text-gray-400 group-hover:text-orange-500 group-hover:translate-x-0.5'
-                                }`} />
-                                {isActive && (
-                                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-orange-400 to-orange-600 rounded-r-full" />
-                                )}
-                              </motion.button>
+                                <ChevronRight className={`w-5 h-5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
+                              </button>
                             );
                           }
 
                           return (
-                            <motion.div
+                            <Link
                               key={category.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: index * 0.05, duration: 0.2 }}
+                              to={`/products?category=${category.id}`}
+                              onClick={closeMobileMenu}
+                              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                                isActive ? 'bg-orange-50' : 'hover:bg-gray-50'
+                              }`}
                             >
-                              <Link
-                                to={`/products?category=${category.id}`}
-                                onClick={handleCategoryLinkClick}
-                                className={`group relative flex items-center gap-3 mx-4 px-4 py-3.5 rounded-xl transition-all duration-300 active:scale-[0.98] ${
-                                  isActive
-                                    ? 'bg-gradient-to-r from-orange-50 to-orange-100/50'
-                                    : 'hover:bg-gray-50'
-                                }`}
-                              >
-                                <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
-                                  {renderCategoryIcon(category, 'md')}
-                                </span>
-                                <span className={`text-[15px] font-semibold tracking-wide transition-colors duration-300 ${
-                                  isActive ? 'text-orange-500' : 'text-gray-700 group-hover:text-orange-500'
-                                }`}>
-                                  {getLocalizedField(category, 'name')}
-                                </span>
-                                {isActive && (
-                                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-gradient-to-b from-orange-400 to-orange-600 rounded-r-full" />
-                                )}
-                              </Link>
-                            </motion.div>
+                              <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
+                                {renderCategoryIcon(category, 'md')}
+                              </span>
+                              <span className={`text-sm font-semibold ${isActive ? 'text-orange-500' : 'text-gray-700'}`}>
+                                {getLocalizedField(category, 'name')}
+                              </span>
+                            </Link>
                           );
                         })}
                       </div>
 
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.3 }}
+                      <Link
+                        to="/products"
+                        onClick={closeMobileMenu}
+                        className="flex items-center justify-between mt-4 px-4 py-3 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/25"
                       >
-                        <Link
-                          to="/products"
-                          onClick={handleCategoryLinkClick}
-                          className="group flex items-center justify-between mx-4 mt-4 px-4 py-3.5 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 text-white transition-all duration-300 hover:shadow-lg hover:shadow-orange-500/25 active:scale-[0.98]"
-                        >
-                          <span className="text-[15px] font-semibold tracking-wide">{t.home.viewAll}</span>
-                          <ChevronRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-                        </Link>
-                      </motion.div>
-
-                      <div className="mx-4 px-4 py-4 mt-4 border-t border-gray-100 flex items-center gap-3">
-                        <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
-                          <Phone className="w-5 h-5 text-orange-500" />
-                        </span>
-                        <span className="text-[15px] font-semibold text-gray-700 tracking-wide">{t.nav.phone}</span>
-                      </div>
-                    </motion.nav>
+                        <span className="text-sm font-semibold">{t.home.viewAll}</span>
+                        <ChevronRight className="w-5 h-5" />
+                      </Link>
+                    </motion.div>
                   ) : (
                     <motion.div
                       key={`drilldown-${mobileDrilldownStack.length}`}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 20 }}
-                      transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                      className="max-h-[60vh] overflow-y-auto"
                     >
                       <button
                         onClick={handleMobileBack}
-                        className="group w-full flex items-center gap-3 px-6 py-4 font-semibold text-orange-500 bg-gradient-to-r from-orange-50 to-transparent border-b border-orange-100 transition-all duration-300 active:scale-[0.99]"
+                        className="w-full flex items-center gap-3 px-6 py-4 font-semibold text-orange-500 bg-orange-50 border-b border-orange-100"
                       >
-                        <ChevronLeft className="w-5 h-5 transition-transform group-hover:-translate-x-1" />
-                        <span className="tracking-wide">{language === 'uz' ? 'Orqaga' : language === 'ru' ? 'Назад' : 'Back'}</span>
+                        <ChevronLeft className="w-5 h-5" />
+                        <span>{language === 'uz' ? 'Orqaga' : language === 'ru' ? 'Назад' : 'Back'}</span>
                       </button>
 
-                      <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 flex items-center gap-3">
+                      <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
                         <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-100 to-orange-50 flex items-center justify-center">
                           {renderCategoryIcon(mobileDrilldownStack[mobileDrilldownStack.length - 1], 'md')}
                         </span>
-                        <span className="text-lg font-bold text-gray-800 tracking-wide">
+                        <span className="text-lg font-bold text-gray-900">
                           {getLocalizedField(mobileDrilldownStack[mobileDrilldownStack.length - 1], 'name')}
                         </span>
                       </div>
 
                       <Link
                         to={`/products?category=${mobileDrilldownStack[mobileDrilldownStack.length - 1].id}`}
-                        onClick={handleCategoryLinkClick}
-                        className="group flex items-center gap-2 px-6 py-3.5 text-sm font-semibold text-orange-500 bg-orange-50/50 border-b border-gray-100 transition-all duration-300 hover:bg-orange-50"
+                        onClick={closeMobileMenu}
+                        className="flex items-center gap-2 px-6 py-3 text-sm font-semibold text-orange-500 border-b border-gray-100"
                       >
                         {language === 'uz' ? 'Hammasini ko\'rish' : language === 'ru' ? 'Смотреть все' : 'View All'}
-                        <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                        <ChevronRight className="w-4 h-4" />
                       </Link>
 
-                      <div className="py-2">
-                        {mobileDrilldownStack[mobileDrilldownStack.length - 1].children.map((category, index) => {
+                      <div className="p-4 space-y-1">
+                        {mobileDrilldownStack[mobileDrilldownStack.length - 1].children.map((category) => {
                           const hasChildren = category.children.length > 0;
 
                           if (hasChildren) {
                             return (
-                              <motion.button
+                              <button
                                 key={category.id}
-                                initial={{ opacity: 0, x: 10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.03, duration: 0.2 }}
                                 onClick={() => handleMobileDrilldown(category)}
-                                className="group w-full flex items-center justify-between px-6 py-3.5 transition-all duration-300 hover:bg-orange-50 active:scale-[0.99]"
+                                className="w-full flex items-center justify-between px-4 py-3 rounded-xl hover:bg-gray-50 transition-all"
                               >
                                 <span className="flex items-center gap-3">
                                   {renderCategoryIcon(category, 'sm')}
-                                  <span className="text-[15px] font-medium text-gray-700 group-hover:text-orange-500 transition-colors tracking-wide">
+                                  <span className="text-sm font-medium text-gray-700">
                                     {getLocalizedField(category, 'name')}
                                   </span>
                                 </span>
-                                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-orange-500 group-hover:translate-x-0.5 transition-all" />
-                              </motion.button>
+                                <ChevronRight className="w-5 h-5 text-gray-400" />
+                              </button>
                             );
                           }
 
                           return (
-                            <motion.div
+                            <Link
                               key={category.id}
-                              initial={{ opacity: 0, x: 10 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.03, duration: 0.2 }}
+                              to={`/products?category=${category.id}`}
+                              onClick={closeMobileMenu}
+                              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-50 transition-all"
                             >
-                              <Link
-                                to={`/products?category=${category.id}`}
-                                onClick={handleCategoryLinkClick}
-                                className="group flex items-center gap-3 px-6 py-3.5 transition-all duration-300 hover:bg-orange-50 active:scale-[0.99]"
-                              >
-                                {renderCategoryIcon(category, 'sm')}
-                                <span className="text-[15px] font-medium text-gray-700 group-hover:text-orange-500 transition-colors tracking-wide">
-                                  {getLocalizedField(category, 'name')}
-                                </span>
-                              </Link>
-                            </motion.div>
+                              {renderCategoryIcon(category, 'sm')}
+                              <span className="text-sm font-medium text-gray-700">
+                                {getLocalizedField(category, 'name')}
+                              </span>
+                            </Link>
                           );
                         })}
                       </div>
@@ -685,10 +763,37 @@ export default function Header() {
                   )}
                 </AnimatePresence>
               </div>
+
+              <div className="p-4 border-t border-gray-100 bg-gray-50">
+                <div className="flex items-center justify-between mb-4">
+                  <a href="tel:+998652000002" className="flex items-center gap-2 text-gray-700">
+                    <Phone className="w-5 h-5 text-orange-500" />
+                    <span className="text-sm font-semibold">{t.nav.phone}</span>
+                  </a>
+
+                  <div className="flex gap-1">
+                    {languages.map((lang) => (
+                      <button
+                        key={lang.code}
+                        onClick={() => setLanguage(lang.code)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                          language === lang.code
+                            ? 'bg-orange-500 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        }`}
+                      >
+                        {lang.code.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </header>
+          </>
+        )}
+      </AnimatePresence>
+
+      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+    </>
   );
 }
