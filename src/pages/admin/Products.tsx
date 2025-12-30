@@ -12,12 +12,13 @@ import {
   XCircle,
   Clock,
   FolderSync,
-  Play
+  Play,
+  Database
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { fetchAllProducts, triggerSync, triggerCategorySync } from '../../services/productService';
+import { fetchAllProducts, triggerCategorySync } from '../../services/productService';
 import { formatPrice } from '../../utils/format';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductModal from '../../components/admin/ProductModal';
@@ -44,7 +45,6 @@ export default function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [syncingCategories, setSyncingCategories] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -129,21 +129,9 @@ export default function Products() {
     }
   }, [isDeleteModalOpen]);
 
-  const handleSync = async () => {
-    if (isSyncRunning) return;
-
-    setSyncing(true);
-    setSyncError(null);
-
-    const result = await triggerSync();
-
-    if (!result.ok) {
-      setSyncError(result.error || 'Sync failed');
-    }
-
+  const handleRefresh = async () => {
     await loadProducts();
     await loadSyncStatus();
-    setSyncing(false);
   };
 
   const handleCategorySync = async () => {
@@ -235,9 +223,15 @@ export default function Products() {
   };
 
   const isSyncRunning = syncStatus?.status === 'running' || syncStatus?.status === 'in_progress';
-  const progressPercent = syncStatus && syncStatus.total > 0
-    ? Math.round((syncStatus.processed / syncStatus.total) * 100)
-    : 0;
+
+  const calculateProgressPercent = (): number => {
+    if (!syncStatus) return 0;
+    if (syncStatus.status === 'success') return 100;
+    if (syncStatus.total === 0) return 0;
+    return Math.floor((syncStatus.processed / syncStatus.total) * 100);
+  };
+
+  const progressPercent = calculateProgressPercent();
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, Record<string, string>> = {
@@ -291,7 +285,7 @@ export default function Products() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleCategorySync}
-            disabled={syncingCategories || syncing || isSyncRunning}
+            disabled={syncingCategories || isSyncRunning}
             className="flex items-center gap-2 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
             title={language === 'uz' ? 'Kategoriyalarni sinxronlash' : language === 'ru' ? 'Синхронизировать категории' : 'Sync Categories'}
           >
@@ -300,17 +294,14 @@ export default function Products() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={handleSync}
-            disabled={syncing || syncingCategories || isSyncRunning}
+            onClick={handleRefresh}
+            disabled={isSyncRunning}
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+            title={language === 'uz' ? "Ma'lumotlarni yangilash" : language === 'ru' ? 'Обновить данные' : 'Refresh Data'}
           >
-            <RefreshCw className={`w-5 h-5 ${syncing || isSyncRunning ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-5 h-5 ${isSyncRunning ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">
-              {isSyncRunning
-                ? (language === 'uz' ? 'Sinxronlanmoqda...' : language === 'ru' ? 'Синхронизация...' : 'Syncing...')
-                : syncing
-                  ? (language === 'uz' ? 'Yuborilmoqda...' : language === 'ru' ? 'Отправка...' : 'Sending...')
-                  : (language === 'uz' ? 'Sinxronlash' : language === 'ru' ? 'Синхронизировать' : 'Sync')}
+              {language === 'uz' ? 'Yangilash' : language === 'ru' ? 'Обновить' : 'Refresh'}
             </span>
           </motion.button>
           <motion.button
@@ -329,6 +320,13 @@ export default function Products() {
         <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
+              <Database className="w-5 h-5 text-gray-400" />
+              <span className="text-sm font-medium text-gray-300">
+                {language === 'uz' ? 'Sinxronizatsiya holati' : language === 'ru' ? 'Статус синхронизации' : 'Sync Status'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
               {getStatusIcon(syncStatus.status)}
               <span className={`text-sm font-medium ${getStatusColor(syncStatus.status)}`}>
                 {getStatusLabel(syncStatus.status)}
@@ -342,40 +340,42 @@ export default function Products() {
               </div>
             )}
 
-            {isSyncRunning && syncStatus.total > 0 && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <span className="font-medium text-white">{syncStatus.processed}</span>
-                <span>/</span>
-                <span>{syncStatus.total}</span>
-                <span className="text-blue-400 ml-1">({progressPercent}%)</span>
-              </div>
-            )}
-
             {(syncStatus.last_sync_at || syncStatus.finished_at) && !isSyncRunning && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div className="flex items-center gap-2 text-sm text-gray-400 ml-auto">
                 <Clock className="w-4 h-4" />
                 {formatSyncTime(syncStatus.finished_at || syncStatus.last_sync_at)}
               </div>
             )}
-
-            {syncStatus.started_at && isSyncRunning && (
-              <div className="flex items-center gap-2 text-sm text-gray-400 ml-auto">
-                <span>{language === 'uz' ? 'Boshlandi' : language === 'ru' ? 'Начато' : 'Started'}:</span>
-                {formatSyncTime(syncStatus.started_at)}
-              </div>
-            )}
           </div>
 
-          {isSyncRunning && syncStatus.total > 0 && (
-            <div className="space-y-2">
-              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+          {isSyncRunning && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <span className="font-medium text-white">{syncStatus.processed}</span>
+                  <span>/</span>
+                  <span>{syncStatus.total}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-blue-400">{progressPercent}%</span>
+                </div>
+              </div>
+
+              <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
                 <motion.div
-                  className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"
+                  className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full relative"
                   initial={{ width: 0 }}
                   animate={{ width: `${progressPercent}%` }}
                   transition={{ duration: 0.3, ease: 'easeOut' }}
-                />
+                >
+                  {progressPercent > 10 && (
+                    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                      {progressPercent}%
+                    </span>
+                  )}
+                </motion.div>
               </div>
+
               <div className="flex justify-between text-xs text-gray-500">
                 <span>
                   {language === 'uz' ? 'Qayta ishlangan' : language === 'ru' ? 'Обработано' : 'Processed'}: {syncStatus.processed}
@@ -384,6 +384,22 @@ export default function Products() {
                   {language === 'uz' ? 'Jami' : language === 'ru' ? 'Всего' : 'Total'}: {syncStatus.total}
                 </span>
               </div>
+
+              {syncStatus.started_at && (
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>{language === 'uz' ? 'Boshlandi' : language === 'ru' ? 'Начато' : 'Started'}:</span>
+                  {formatSyncTime(syncStatus.started_at)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {syncStatus.status === 'success' && (
+            <div className="flex items-center gap-3">
+              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-green-600 to-green-400 rounded-full w-full" />
+              </div>
+              <span className="text-lg font-bold text-green-400 whitespace-nowrap">100%</span>
             </div>
           )}
 
