@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -11,22 +11,29 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FolderSync
+  FolderSync,
+  Play
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { fetchAllProducts, triggerSync, triggerCategorySync, SyncResult } from '../../services/productService';
+import { fetchAllProducts, triggerSync, triggerCategorySync } from '../../services/productService';
 import { formatPrice } from '../../utils/format';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductModal from '../../components/admin/ProductModal';
 
 interface SyncStatus {
+  id: string;
   entity: string;
-  status: 'success' | 'error' | 'in_progress' | 'pending';
+  status: 'success' | 'error' | 'in_progress' | 'pending' | 'running' | 'idle';
   message: string | null;
   records_synced: number;
+  total: number;
+  processed: number;
   last_sync_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string | null;
 }
 
 const LOW_STOCK_THRESHOLD = 5;
@@ -46,8 +53,8 @@ export default function Products() {
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const previousStatusRef = useRef<string | null>(null);
 
   const loadSyncStatus = useCallback(async () => {
     const { data } = await supabase
@@ -61,11 +68,57 @@ export default function Products() {
     }
   }, []);
 
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    const data = await fetchAllProducts();
+    setProducts(data);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     loadProducts();
     fetchCategories();
     loadSyncStatus();
-  }, [loadSyncStatus]);
+  }, [loadSyncStatus, loadProducts]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('sync_status_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'sync_status',
+          filter: 'entity=eq.products',
+        },
+        (payload) => {
+          const newStatus = payload.new as SyncStatus;
+          setSyncStatus(newStatus);
+
+          if (
+            previousStatusRef.current &&
+            (previousStatusRef.current === 'running' || previousStatusRef.current === 'in_progress') &&
+            (newStatus.status === 'success' || newStatus.status === 'idle')
+          ) {
+            loadProducts();
+          }
+
+          previousStatusRef.current = newStatus.status;
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadProducts]);
+
+  useEffect(() => {
+    if (syncStatus) {
+      previousStatusRef.current = syncStatus.status;
+    }
+  }, [syncStatus]);
 
   useEffect(() => {
     if (isDeleteModalOpen) {
@@ -76,20 +129,13 @@ export default function Products() {
     }
   }, [isDeleteModalOpen]);
 
-  const loadProducts = async () => {
-    setLoading(true);
-    const data = await fetchAllProducts();
-    setProducts(data);
-    setLoading(false);
-  };
-
   const handleSync = async () => {
+    if (isSyncRunning) return;
+
     setSyncing(true);
     setSyncError(null);
-    setLastSyncResult(null);
 
     const result = await triggerSync();
-    setLastSyncResult(result);
 
     if (!result.ok) {
       setSyncError(result.error || 'Sync failed');
@@ -188,6 +234,44 @@ export default function Products() {
     return 'ok';
   };
 
+  const isSyncRunning = syncStatus?.status === 'running' || syncStatus?.status === 'in_progress';
+  const progressPercent = syncStatus && syncStatus.total > 0
+    ? Math.round((syncStatus.processed / syncStatus.total) * 100)
+    : 0;
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, Record<string, string>> = {
+      success: { uz: 'Muvaffaqiyatli', ru: 'Успешно', en: 'Success' },
+      error: { uz: 'Xato', ru: 'Ошибка', en: 'Error' },
+      running: { uz: 'Ishlayapti', ru: 'Выполняется', en: 'Running' },
+      in_progress: { uz: 'Jarayonda', ru: 'В процессе', en: 'In Progress' },
+      pending: { uz: 'Kutilmoqda', ru: 'Ожидание', en: 'Pending' },
+      idle: { uz: 'Tayyor', ru: 'Готово', en: 'Idle' },
+    };
+    return labels[status]?.[language] || status;
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'success': return 'text-green-400';
+      case 'error': return 'text-red-400';
+      case 'running':
+      case 'in_progress': return 'text-blue-400';
+      default: return 'text-gray-400';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'success': return <CheckCircle className="w-5 h-5 text-green-400" />;
+      case 'error': return <XCircle className="w-5 h-5 text-red-400" />;
+      case 'running':
+      case 'in_progress': return <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />;
+      case 'idle': return <Play className="w-5 h-5 text-gray-400" />;
+      default: return <Clock className="w-5 h-5 text-gray-400" />;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -207,7 +291,7 @@ export default function Products() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleCategorySync}
-            disabled={syncingCategories || syncing}
+            disabled={syncingCategories || syncing || isSyncRunning}
             className="flex items-center gap-2 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
             title={language === 'uz' ? 'Kategoriyalarni sinxronlash' : language === 'ru' ? 'Синхронизировать категории' : 'Sync Categories'}
           >
@@ -217,14 +301,16 @@ export default function Products() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleSync}
-            disabled={syncing || syncingCategories}
+            disabled={syncing || syncingCategories || isSyncRunning}
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
           >
-            <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-5 h-5 ${syncing || isSyncRunning ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">
-              {syncing
+              {isSyncRunning
                 ? (language === 'uz' ? 'Sinxronlanmoqda...' : language === 'ru' ? 'Синхронизация...' : 'Syncing...')
-                : (language === 'uz' ? 'Sinxronlash' : language === 'ru' ? 'Синхронизировать' : 'Sync')}
+                : syncing
+                  ? (language === 'uz' ? 'Yuborilmoqda...' : language === 'ru' ? 'Отправка...' : 'Sending...')
+                  : (language === 'uz' ? 'Sinxronlash' : language === 'ru' ? 'Синхронизировать' : 'Sync')}
             </span>
           </motion.button>
           <motion.button
@@ -239,67 +325,83 @@ export default function Products() {
         </div>
       </div>
 
-      {(syncStatus || lastSyncResult || syncError) && (
-        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4">
+      {syncStatus && (
+        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-4">
-            {syncStatus && (
-              <div className="flex items-center gap-2">
-                {syncStatus.status === 'success' && <CheckCircle className="w-5 h-5 text-green-400" />}
-                {syncStatus.status === 'error' && <XCircle className="w-5 h-5 text-red-400" />}
-                {syncStatus.status === 'in_progress' && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
-                {syncStatus.status === 'pending' && <Clock className="w-5 h-5 text-gray-400" />}
-                <span className={`text-sm font-medium ${
-                  syncStatus.status === 'success' ? 'text-green-400' :
-                  syncStatus.status === 'error' ? 'text-red-400' :
-                  syncStatus.status === 'in_progress' ? 'text-blue-400' :
-                  'text-gray-400'
-                }`}>
-                  {syncStatus.status === 'success' ? (language === 'uz' ? 'Muvaffaqiyatli' : language === 'ru' ? 'Успешно' : 'Success') :
-                   syncStatus.status === 'error' ? (language === 'uz' ? 'Xato' : language === 'ru' ? 'Ошибка' : 'Error') :
-                   syncStatus.status === 'in_progress' ? (language === 'uz' ? 'Jarayonda' : language === 'ru' ? 'В процессе' : 'In Progress') :
-                   (language === 'uz' ? 'Kutilmoqda' : language === 'ru' ? 'Ожидание' : 'Pending')}
-                </span>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {getStatusIcon(syncStatus.status)}
+              <span className={`text-sm font-medium ${getStatusColor(syncStatus.status)}`}>
+                {getStatusLabel(syncStatus.status)}
+              </span>
+            </div>
 
-            {syncStatus?.records_synced !== undefined && syncStatus.records_synced > 0 && (
+            {syncStatus.records_synced > 0 && !isSyncRunning && (
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <span className="font-medium text-white">{syncStatus.records_synced}</span>
                 {language === 'uz' ? 'ta mahsulot' : language === 'ru' ? 'товаров' : 'products'}
               </div>
             )}
 
-            {syncStatus?.last_sync_at && (
+            {isSyncRunning && syncStatus.total > 0 && (
               <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Clock className="w-4 h-4" />
-                {formatSyncTime(syncStatus.last_sync_at)}
+                <span className="font-medium text-white">{syncStatus.processed}</span>
+                <span>/</span>
+                <span>{syncStatus.total}</span>
+                <span className="text-blue-400 ml-1">({progressPercent}%)</span>
               </div>
             )}
 
-            {lastSyncResult?.ok && (
-              <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
-                {lastSyncResult.synced !== undefined && (
-                  <span className="text-green-400">+{lastSyncResult.synced} synced</span>
-                )}
-                {lastSyncResult.removed_zero_stock !== undefined && lastSyncResult.removed_zero_stock > 0 && (
-                  <span className="text-yellow-400">-{lastSyncResult.removed_zero_stock} zero stock</span>
-                )}
-                {lastSyncResult.removed_orphaned !== undefined && lastSyncResult.removed_orphaned > 0 && (
-                  <span className="text-red-400">-{lastSyncResult.removed_orphaned} orphaned</span>
-                )}
+            {(syncStatus.last_sync_at || syncStatus.finished_at) && !isSyncRunning && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Clock className="w-4 h-4" />
+                {formatSyncTime(syncStatus.finished_at || syncStatus.last_sync_at)}
+              </div>
+            )}
+
+            {syncStatus.started_at && isSyncRunning && (
+              <div className="flex items-center gap-2 text-sm text-gray-400 ml-auto">
+                <span>{language === 'uz' ? 'Boshlandi' : language === 'ru' ? 'Начато' : 'Started'}:</span>
+                {formatSyncTime(syncStatus.started_at)}
               </div>
             )}
           </div>
 
+          {isSyncRunning && syncStatus.total > 0 && (
+            <div className="space-y-2">
+              <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                <motion.div
+                  className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPercent}%` }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>
+                  {language === 'uz' ? 'Qayta ishlangan' : language === 'ru' ? 'Обработано' : 'Processed'}: {syncStatus.processed}
+                </span>
+                <span>
+                  {language === 'uz' ? 'Jami' : language === 'ru' ? 'Всего' : 'Total'}: {syncStatus.total}
+                </span>
+              </div>
+            </div>
+          )}
+
           {syncError && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{syncError}</p>
             </div>
           )}
 
-          {syncStatus?.message && syncStatus.status === 'error' && (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+          {syncStatus.message && syncStatus.status === 'error' && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{syncStatus.message}</p>
+            </div>
+          )}
+
+          {syncStatus.message && syncStatus.status === 'success' && (
+            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <p className="text-sm text-green-400">{syncStatus.message}</p>
             </div>
           )}
         </div>
