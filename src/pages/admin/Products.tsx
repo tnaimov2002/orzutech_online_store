@@ -45,17 +45,12 @@ export default function Products() {
   }, [isDeleteModalOpen]);
 
   const fetchProducts = async () => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('products')
       .select('*, product_images(*), category:categories(*)')
       .order('created_at', { ascending: false });
 
-    console.log('[ADMIN PRODUCTS] Fetch results:', { count: data?.length || 0, error: error?.message });
-
-    if (data) {
-      setProducts(data);
-      console.log('[ADMIN PRODUCTS] State updated with', data.length, 'products');
-    }
+    if (data) setProducts(data);
     setLoading(false);
   };
 
