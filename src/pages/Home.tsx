@@ -63,26 +63,32 @@ export default function Home() {
   const fetchData = async () => {
     setLoading(true);
 
+    const rawTest = await supabase.from('products').select('id, name_uz, stock, stock_quantity').limit(5);
+    console.log('[HOME] RAW PRODUCTS TEST:', { data: rawTest.data, error: rawTest.error, count: rawTest.data?.length });
+
+    const rawCatTest = await supabase.from('categories').select('id, name_uz, status').limit(5);
+    console.log('[HOME] RAW CATEGORIES TEST:', { data: rawCatTest.data, error: rawCatTest.error, count: rawCatTest.data?.length });
+
     const [newRes, popularRes, discountRes, categoriesRes, allProductsRes] = await Promise.all([
       supabase
         .from('products')
         .select('*, product_images(*), category:categories(*)')
         .eq('is_new', true)
-        .or('stock.gt.0,stock_quantity.gt.0')
+        .gt('stock', 0)
         .order('created_at', { ascending: false })
         .limit(8),
       supabase
         .from('products')
         .select('*, product_images(*), category:categories(*)')
         .eq('is_popular', true)
-        .or('stock.gt.0,stock_quantity.gt.0')
+        .gt('stock', 0)
         .order('rating', { ascending: false })
         .limit(8),
       supabase
         .from('products')
         .select('*, product_images(*), category:categories(*)')
         .eq('is_discount', true)
-        .or('stock.gt.0,stock_quantity.gt.0')
+        .gt('stock', 0)
         .not('original_price', 'is', null)
         .limit(8),
       supabase
@@ -93,17 +99,22 @@ export default function Home() {
       supabase
         .from('products')
         .select('*, product_images(*), category:categories(*)')
-        .or('stock.gt.0,stock_quantity.gt.0')
+        .gt('stock', 0)
         .order('created_at', { ascending: false })
         .limit(8),
     ]);
 
     console.log('[HOME] Data fetch results:', {
       newProducts: newRes.data?.length || 0,
+      newError: newRes.error?.message,
       popularProducts: popularRes.data?.length || 0,
+      popularError: popularRes.error?.message,
       discountProducts: discountRes.data?.length || 0,
+      discountError: discountRes.error?.message,
       categories: categoriesRes.data?.length || 0,
+      categoriesError: categoriesRes.error?.message,
       allProducts: allProductsRes.data?.length || 0,
+      allError: allProductsRes.error?.message,
     });
 
     if (newRes.data && newRes.data.length > 0) {

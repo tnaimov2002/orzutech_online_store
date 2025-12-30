@@ -76,7 +76,7 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
         id, name_uz, name_ru, name_en, price, stock_quantity, stock,
         product_images (image_url, is_primary)
       `)
-      .or('stock.gt.0,stock_quantity.gt.0')
+      .gt('stock', 0)
       .or(`name_uz.ilike.${searchTerm},name_ru.ilike.${searchTerm},name_en.ilike.${searchTerm},brand.ilike.${searchTerm}`)
       .limit(8);
 

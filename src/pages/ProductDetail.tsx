@@ -88,7 +88,7 @@ export default function ProductDetail() {
           .select('*, product_images(*), category:categories(*)')
           .eq('category_id', productData.category_id)
           .neq('id', id)
-          .or('stock.gt.0,stock_quantity.gt.0')
+          .gt('stock', 0)
           .limit(4);
 
         if (relatedData) setRelatedProducts(relatedData);

@@ -125,7 +125,7 @@ export default function Products() {
     let query = supabase
       .from('products')
       .select('*, product_images(*), category:categories(*)')
-      .or('stock.gt.0,stock_quantity.gt.0')
+      .gt('stock', 0)
       .gte('price', appliedPriceRange[0])
       .lte('price', appliedPriceRange[1]);
 
