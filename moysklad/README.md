@@ -1,78 +1,87 @@
-# Moysklad
-
-## Первый импорт (инициализация БД)
-
-Скрипт `moysklad/full_products_import.ts` используется только при создании
-пустой базы.
-
-1. Создайте `.env` с `MOYSKLAD_TOKEN`, `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`.
-2. Запустите из корня проекта:
-
-```bash
-node moysklad/full_products_import.ts
-```
+# Moysklad Integration
 
 ## Edge Functions (Supabase)
 
-Все Edge функции находятся в `supabase/functions/`.
+All Edge Functions are deployed at `https://uewatoihvlsltyxeized.supabase.co`:
 
-`moysklad-sync-products` — обновляет последние 100 товаров и затем все остатки.
-Запускается по крону через Supabase (Cron extension).
+| Function | URL | Purpose |
+|----------|-----|---------|
+| **moysklad-sync** | `/functions/v1/moysklad-sync` | Main product sync + read endpoint |
+| **moysklad-sync-categories** | `/functions/v1/moysklad-sync-categories` | Category hierarchy sync |
+| **handle-product-delete** | `/functions/v1/handle-product-delete` | Product deletion webhook handler |
 
-`moysklad-sync-categories` — синхронизирует категории.
+## Product Data Flow
 
-`moysklad-handle-product-delete` — вебхук на удаление товаров.
-
-```sql
-create or replace function public.update_products_stock(payload jsonb)
-returns void
-language sql
-as $$
-  update products p
-  set stock = v.stock
-  from jsonb_to_recordset(payload) as v(moysklad_id uuid, stock numeric)
-  where p.moysklad_id = v.moysklad_id;
-$$;
+```
+Frontend/Admin Panel
+        |
+        v
+/functions/v1/moysklad-sync?read_only=true
+        |
+        v
+Returns products from Supabase DB
 ```
 
-## Вебхук удаления
+## Full Sync (Manual)
 
-Функция: `supabase/functions/moysklad-handle-product-delete`.
-Вебхук в МойСклад должен указывать на URL этой функции и отправлять `DELETE`
-события по товарам.
+The script `moysklad/full_products_import.ts` is used only for initial database setup:
 
-Создать вебхук
+1. Create `.env` with `MOYSKLAD_TOKEN`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+2. Run from project root:
+
+```bash
+npx ts-node moysklad/full_products_import.ts
+```
+
+## API Usage
+
+### Fetch All Products (Read Only)
+```bash
+curl "https://uewatoihvlsltyxeized.supabase.co/functions/v1/moysklad-sync?read_only=true"
+```
+
+### Fetch Single Product
+```bash
+curl "https://uewatoihvlsltyxeized.supabase.co/functions/v1/moysklad-sync?read_only=true&product_id=UUID"
+```
+
+### Fetch Products by Category
+```bash
+curl "https://uewatoihvlsltyxeized.supabase.co/functions/v1/moysklad-sync?read_only=true&category_id=UUID"
+```
+
+### Trigger Full Sync (from MoySklad)
+```bash
+curl "https://uewatoihvlsltyxeized.supabase.co/functions/v1/moysklad-sync"
+```
+
+### Sync Categories
+```bash
+curl "https://uewatoihvlsltyxeized.supabase.co/functions/v1/moysklad-sync-categories"
+```
+
+## Webhook Setup (Product Deletion)
+
+Create webhook in MoySklad:
 
 ```bash
 curl --compressed -X POST \
   https://api.moysklad.ru/api/remap/1.2/entity/webhook \
   -H "Authorization: Bearer $MOYSKLAD_TOKEN" \
   -H "Accept-Encoding: gzip" \
-  -H 'Cache-Control: no-cache' \
   -H 'Content-Type: application/json' \
   -d '{
-    "url": "https://YOUR_PROJECT.supabase.co/functions/v1/moysklad-handle-product-delete",
+    "url": "https://uewatoihvlsltyxeized.supabase.co/functions/v1/handle-product-delete",
     "action": "DELETE",
     "entityType": "product"
    }'
 ```
 
-Получить все вебхуки
+List all webhooks:
 
 ```bash
 curl --compressed -X GET \
   https://api.moysklad.ru/api/remap/1.2/entity/webhook \
-  -H "Authorization: Bearer $MOYSKLAD_TOKEN" \
-  -H "Accept-Encoding: gzip" \
-  -H 'Content-Type: application/json' | jq '.rows[] | select(.action == "DELETE")'
-```
-
-Удалить вебхук
-
-```bash
-curl --compressed -X DELETE \
-  "https://api.moysklad.ru/api/remap/1.2/entity/webhook/{}" \
   -H "Authorization: Bearer $MOYSKLAD_TOKEN" \
   -H "Accept-Encoding: gzip"
 ```
