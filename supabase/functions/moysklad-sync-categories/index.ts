@@ -18,6 +18,30 @@ function extractUuid(href: string | undefined | null): string | null {
   return match ? match[0] : null;
 }
 
+async function updateProgress(
+  supabase: ReturnType<typeof createClient>,
+  total: number,
+  processed: number,
+  status: string = "running",
+  message: string | null = null
+) {
+  const percent = total > 0 ? Math.floor((processed / total) * 100) : 0;
+
+  await supabase
+    .from("sync_status")
+    .upsert({
+      entity: "categories",
+      status,
+      total,
+      processed,
+      percent,
+      message,
+      updated_at: new Date().toISOString(),
+      ...(status === "running" && processed === 0 ? { started_at: new Date().toISOString() } : {}),
+      ...(status === "success" || status === "error" ? { finished_at: new Date().toISOString() } : {}),
+    }, { onConflict: "entity" });
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -50,8 +74,24 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false },
     });
 
+    const countRes = await fetch(`${BASE_URL}?limit=1`, {
+      headers: {
+        Authorization: `Bearer ${moyskladToken}`,
+        Accept: "application/json;charset=utf-8",
+      },
+    });
+
+    if (!countRes.ok) {
+      throw new Error(`MoySklad count error: ${countRes.status}`);
+    }
+
+    const countData = await countRes.json();
+    const totalCategories = countData?.meta?.size || 0;
+
+    console.log(`[SYNC] Total categories in MoySklad: ${totalCategories}`);
+    await updateProgress(supabase, totalCategories, 0, "running", "Starting categories sync...");
+
     let offset = 0;
-    let totalSize: number | null = null;
     let totalFetched = 0;
     let page = 1;
     const allRows: any[] = [];
@@ -72,6 +112,7 @@ Deno.serve(async (req: Request) => {
       if (!res.ok) {
         const text = await res.text();
         console.error(`[MOYSKLAD] Error ${res.status}:`, text);
+        await updateProgress(supabase, totalCategories, totalFetched, "error", `MoySklad error: ${res.status}`);
         return new Response(
           JSON.stringify({ error: `MoySklad error: ${res.status} ${text}` }),
           {
@@ -82,23 +123,34 @@ Deno.serve(async (req: Request) => {
       }
 
       const data = await res.json();
-      const metaSize = data?.meta?.size;
-      if (typeof metaSize === "number" && totalSize === null) {
-        totalSize = metaSize;
-      }
-
       const rows = Array.isArray(data?.rows) ? data.rows : [];
       totalFetched += rows.length;
       allRows.push(...rows);
 
+      await updateProgress(
+        supabase,
+        totalCategories,
+        totalFetched,
+        "running",
+        `Fetching categories... ${totalFetched}/${totalCategories}`
+      );
+
       if (rows.length < LIMIT) break;
-      if (totalSize !== null && totalFetched >= totalSize) break;
+      if (totalCategories > 0 && totalFetched >= totalCategories) break;
 
       offset += LIMIT;
       page += 1;
     }
 
     console.log(`[MOYSKLAD] Total categories fetched: ${allRows.length}`);
+
+    await updateProgress(
+      supabase,
+      totalCategories,
+      totalFetched,
+      "running",
+      "Processing and saving categories..."
+    );
 
     const payloadBase = allRows.map((row: any) => ({
       moysklad_id: row?.id,
@@ -112,6 +164,7 @@ Deno.serve(async (req: Request) => {
     }));
 
     if (payloadBase.length === 0) {
+      await updateProgress(supabase, 0, 0, "success", "No categories to sync");
       return new Response(
         JSON.stringify({ ok: true, synced: 0 }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -129,6 +182,7 @@ Deno.serve(async (req: Request) => {
 
     if (firstUpsertError) {
       console.error("[DB] First upsert failed:", firstUpsertError);
+      await updateProgress(supabase, totalCategories, totalFetched, "error", `DB error: ${firstUpsertError.message}`);
       return new Response(
         JSON.stringify({ error: `DB upsert error: ${firstUpsertError.message}` }),
         {
@@ -144,6 +198,7 @@ Deno.serve(async (req: Request) => {
 
     if (secondUpsertError) {
       console.error("[DB] Second upsert failed:", secondUpsertError);
+      await updateProgress(supabase, totalCategories, totalFetched, "error", `DB error: ${secondUpsertError.message}`);
       return new Response(
         JSON.stringify({ error: `DB upsert error: ${secondUpsertError.message}` }),
         {
@@ -166,6 +221,7 @@ Deno.serve(async (req: Request) => {
 
     if (existingError) {
       console.error("[DB] Fetch failed:", existingError);
+      await updateProgress(supabase, totalCategories, totalFetched, "error", `DB error: ${existingError.message}`);
       return new Response(
         JSON.stringify({ error: `DB fetch error: ${existingError.message}` }),
         {
@@ -195,16 +251,24 @@ Deno.serve(async (req: Request) => {
       console.log(`[DB] Deleted ${idsToDelete.length} categories no longer in MoySklad`);
     }
 
+    const syncMessage = `Synced ${payloadBase.length} categories, deleted ${idsToDelete.length}`;
+
     await supabase
       .from("sync_status")
       .upsert({
         entity: "categories",
-        last_sync_at: new Date().toISOString(),
         status: "success",
-        message: `Synced ${payloadBase.length} categories, deleted ${idsToDelete.length}`,
+        total: totalCategories,
+        processed: totalCategories,
+        percent: 100,
+        message: syncMessage,
         records_synced: payloadBase.length,
+        last_sync_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: "entity" });
+
+    console.log("[SYNC] Categories sync completed successfully");
 
     return new Response(
       JSON.stringify({
@@ -227,9 +291,9 @@ Deno.serve(async (req: Request) => {
         .from("sync_status")
         .upsert({
           entity: "categories",
-          last_sync_at: new Date().toISOString(),
           status: "error",
           message: String(error),
+          finished_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: "entity" });
     }

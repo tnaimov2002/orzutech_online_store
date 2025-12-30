@@ -11,14 +11,13 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  FolderSync,
-  Play,
-  Database
+  Database,
+  Play
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { fetchAllProducts, triggerCategorySync } from '../../services/productService';
+import { fetchAllProducts, triggerCategorySync, triggerProductSync } from '../../services/productService';
 import { formatPrice } from '../../utils/format';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductModal from '../../components/admin/ProductModal';
@@ -31,6 +30,7 @@ interface SyncStatus {
   records_synced: number;
   total: number;
   processed: number;
+  percent: number;
   last_sync_at: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -45,26 +45,38 @@ export default function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncingCategories, setSyncingCategories] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncPhase, setSyncPhase] = useState<'idle' | 'categories' | 'products'>('idle');
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [categorySyncStatus, setCategorySyncStatus] = useState<SyncStatus | null>(null);
+  const [productSyncStatus, setProductSyncStatus] = useState<SyncStatus | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const previousStatusRef = useRef<string | null>(null);
+  const previousProductStatusRef = useRef<string | null>(null);
 
   const loadSyncStatus = useCallback(async () => {
-    const { data } = await supabase
+    const { data: categoryData } = await supabase
+      .from('sync_status')
+      .select('*')
+      .eq('entity', 'categories')
+      .maybeSingle();
+
+    if (categoryData) {
+      setCategorySyncStatus(categoryData as SyncStatus);
+    }
+
+    const { data: productData } = await supabase
       .from('sync_status')
       .select('*')
       .eq('entity', 'products')
       .maybeSingle();
 
-    if (data) {
-      setSyncStatus(data as SyncStatus);
+    if (productData) {
+      setProductSyncStatus(productData as SyncStatus);
     }
   }, []);
 
@@ -75,6 +87,15 @@ export default function Products() {
     setLoading(false);
   }, []);
 
+  const fetchCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('*')
+      .order('sort_order');
+
+    if (data) setCategories(data);
+  };
+
   useEffect(() => {
     loadProducts();
     fetchCategories();
@@ -83,28 +104,35 @@ export default function Products() {
 
   useEffect(() => {
     const channel = supabase
-      .channel('sync_status_changes')
+      .channel('sync_status_realtime')
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'sync_status',
-          filter: 'entity=eq.products',
         },
         (payload) => {
           const newStatus = payload.new as SyncStatus;
-          setSyncStatus(newStatus);
 
-          if (
-            previousStatusRef.current &&
-            (previousStatusRef.current === 'running' || previousStatusRef.current === 'in_progress') &&
-            (newStatus.status === 'success' || newStatus.status === 'idle')
-          ) {
-            loadProducts();
+          if (newStatus.entity === 'categories') {
+            setCategorySyncStatus(newStatus);
+          } else if (newStatus.entity === 'products') {
+            setProductSyncStatus(newStatus);
+
+            if (
+              previousProductStatusRef.current &&
+              previousProductStatusRef.current === 'running' &&
+              (newStatus.status === 'success' || newStatus.status === 'error')
+            ) {
+              loadProducts();
+              fetchCategories();
+              setSyncing(false);
+              setSyncPhase('idle');
+            }
+
+            previousProductStatusRef.current = newStatus.status;
           }
-
-          previousStatusRef.current = newStatus.status;
         }
       )
       .subscribe();
@@ -115,10 +143,10 @@ export default function Products() {
   }, [loadProducts]);
 
   useEffect(() => {
-    if (syncStatus) {
-      previousStatusRef.current = syncStatus.status;
+    if (productSyncStatus) {
+      previousProductStatusRef.current = productSyncStatus.status;
     }
-  }, [syncStatus]);
+  }, [productSyncStatus]);
 
   useEffect(() => {
     if (isDeleteModalOpen) {
@@ -129,21 +157,26 @@ export default function Products() {
     }
   }, [isDeleteModalOpen]);
 
-  const handleRefresh = async () => {
-    await loadProducts();
-    await loadSyncStatus();
-  };
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncError(null);
+    setSyncPhase('categories');
 
-  const handleCategorySync = async () => {
-    setSyncingCategories(true);
-    const result = await triggerCategorySync();
+    const categoryResult = await triggerCategorySync();
 
-    if (!result.ok) {
-      setSyncError(result.error || 'Category sync failed');
+    if (!categoryResult.ok) {
+      setSyncError(categoryResult.error || 'Category sync failed');
+      setSyncing(false);
+      setSyncPhase('idle');
+      return;
     }
 
-    await fetchCategories();
-    setSyncingCategories(false);
+    setSyncPhase('products');
+    const productResult = await triggerProductSync();
+
+    if (!productResult.ok) {
+      setSyncError(productResult.error || 'Product sync failed');
+    }
   };
 
   const formatSyncTime = (dateStr: string | null) => {
@@ -153,15 +186,6 @@ export default function Products() {
       dateStyle: 'short',
       timeStyle: 'short',
     });
-  };
-
-  const fetchCategories = async () => {
-    const { data } = await supabase
-      .from('categories')
-      .select('*')
-      .order('sort_order');
-
-    if (data) setCategories(data);
   };
 
   const handleOpenModal = (product?: Product) => {
@@ -222,16 +246,13 @@ export default function Products() {
     return 'ok';
   };
 
-  const isSyncRunning = syncStatus?.status === 'running' || syncStatus?.status === 'in_progress';
+  const isSyncRunning =
+    syncing ||
+    categorySyncStatus?.status === 'running' ||
+    productSyncStatus?.status === 'running';
 
-  const calculateProgressPercent = (): number => {
-    if (!syncStatus) return 0;
-    if (syncStatus.status === 'success') return 100;
-    if (syncStatus.total === 0) return 0;
-    return Math.floor((syncStatus.processed / syncStatus.total) * 100);
-  };
-
-  const progressPercent = calculateProgressPercent();
+  const currentSyncStatus = syncPhase === 'categories' ? categorySyncStatus : productSyncStatus;
+  const currentPercent = currentSyncStatus?.percent || 0;
 
   const getStatusLabel = (status: string) => {
     const labels: Record<string, Record<string, string>> = {
@@ -266,6 +287,14 @@ export default function Products() {
     }
   };
 
+  const getProgressBarColor = (status: string | undefined) => {
+    switch (status) {
+      case 'success': return 'from-green-600 to-green-400';
+      case 'error': return 'from-red-600 to-red-400';
+      default: return 'from-blue-600 to-blue-400';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -284,24 +313,13 @@ export default function Products() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={handleCategorySync}
-            disabled={syncingCategories || isSyncRunning}
-            className="flex items-center gap-2 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
-            title={language === 'uz' ? 'Kategoriyalarni sinxronlash' : language === 'ru' ? 'Синхронизировать категории' : 'Sync Categories'}
-          >
-            <FolderSync className={`w-5 h-5 ${syncingCategories ? 'animate-spin' : ''}`} />
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleRefresh}
+            onClick={handleSync}
             disabled={isSyncRunning}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
-            title={language === 'uz' ? "Ma'lumotlarni yangilash" : language === 'ru' ? 'Обновить данные' : 'Refresh Data'}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors"
           >
             <RefreshCw className={`w-5 h-5 ${isSyncRunning ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">
-              {language === 'uz' ? 'Yangilash' : language === 'ru' ? 'Обновить' : 'Refresh'}
+              {language === 'uz' ? 'Sinxronlash' : language === 'ru' ? 'Синхронизация' : 'Sync'}
             </span>
           </motion.button>
           <motion.button
@@ -316,61 +334,75 @@ export default function Products() {
         </div>
       </div>
 
-      {syncStatus && (
+      {(isSyncRunning || productSyncStatus || categorySyncStatus) && (
         <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 space-y-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <Database className="w-5 h-5 text-gray-400" />
               <span className="text-sm font-medium text-gray-300">
-                {language === 'uz' ? 'Sinxronizatsiya holati' : language === 'ru' ? 'Статус синхронизации' : 'Sync Status'}
+                {language === 'uz' ? 'Sinxronizatsiya' : language === 'ru' ? 'Синхронизация' : 'Sync Status'}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
-              {getStatusIcon(syncStatus.status)}
-              <span className={`text-sm font-medium ${getStatusColor(syncStatus.status)}`}>
-                {getStatusLabel(syncStatus.status)}
-              </span>
-            </div>
-
-            {syncStatus.records_synced > 0 && !isSyncRunning && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <span className="font-medium text-white">{syncStatus.records_synced}</span>
-                {language === 'uz' ? 'ta mahsulot' : language === 'ru' ? 'товаров' : 'products'}
+            {syncPhase !== 'idle' && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/20 rounded-lg">
+                <span className="text-sm font-medium text-blue-400">
+                  {syncPhase === 'categories'
+                    ? (language === 'uz' ? 'Kategoriyalar' : language === 'ru' ? 'Категории' : 'Categories')
+                    : (language === 'uz' ? 'Mahsulotlar' : language === 'ru' ? 'Товары' : 'Products')}
+                </span>
               </div>
             )}
 
-            {(syncStatus.last_sync_at || syncStatus.finished_at) && !isSyncRunning && (
-              <div className="flex items-center gap-2 text-sm text-gray-400 ml-auto">
-                <Clock className="w-4 h-4" />
-                {formatSyncTime(syncStatus.finished_at || syncStatus.last_sync_at)}
-              </div>
+            {productSyncStatus && !isSyncRunning && (
+              <>
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(productSyncStatus.status)}
+                  <span className={`text-sm font-medium ${getStatusColor(productSyncStatus.status)}`}>
+                    {getStatusLabel(productSyncStatus.status)}
+                  </span>
+                </div>
+
+                {productSyncStatus.records_synced > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <span className="font-medium text-white">{productSyncStatus.records_synced}</span>
+                    {language === 'uz' ? 'ta mahsulot' : language === 'ru' ? 'товаров' : 'products'}
+                  </div>
+                )}
+
+                {(productSyncStatus.last_sync_at || productSyncStatus.finished_at) && (
+                  <div className="flex items-center gap-2 text-sm text-gray-400 ml-auto">
+                    <Clock className="w-4 h-4" />
+                    {formatSyncTime(productSyncStatus.finished_at || productSyncStatus.last_sync_at)}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
-          {isSyncRunning && (
+          {isSyncRunning && currentSyncStatus && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <span className="font-medium text-white">{syncStatus.processed}</span>
+                  <span className="font-medium text-white">{currentSyncStatus.processed || 0}</span>
                   <span>/</span>
-                  <span>{syncStatus.total}</span>
+                  <span>{currentSyncStatus.total || 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl font-bold text-blue-400">{progressPercent}%</span>
+                  <span className="text-2xl font-bold text-blue-400">{currentPercent}%</span>
                 </div>
               </div>
 
               <div className="w-full bg-gray-700 rounded-full h-4 overflow-hidden">
                 <motion.div
-                  className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full relative"
+                  className={`h-full bg-gradient-to-r ${getProgressBarColor(currentSyncStatus.status)} rounded-full relative`}
                   initial={{ width: 0 }}
-                  animate={{ width: `${progressPercent}%` }}
+                  animate={{ width: `${currentPercent}%` }}
                   transition={{ duration: 0.3, ease: 'easeOut' }}
                 >
-                  {progressPercent > 10 && (
+                  {currentPercent > 10 && (
                     <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
-                      {progressPercent}%
+                      {currentPercent}%
                     </span>
                   )}
                 </motion.div>
@@ -378,23 +410,22 @@ export default function Products() {
 
               <div className="flex justify-between text-xs text-gray-500">
                 <span>
-                  {language === 'uz' ? 'Qayta ishlangan' : language === 'ru' ? 'Обработано' : 'Processed'}: {syncStatus.processed}
+                  {language === 'uz' ? 'Qayta ishlangan' : language === 'ru' ? 'Обработано' : 'Processed'}: {currentSyncStatus.processed || 0}
                 </span>
                 <span>
-                  {language === 'uz' ? 'Jami' : language === 'ru' ? 'Всего' : 'Total'}: {syncStatus.total}
+                  {language === 'uz' ? 'Jami' : language === 'ru' ? 'Всего' : 'Total'}: {currentSyncStatus.total || 0}
                 </span>
               </div>
 
-              {syncStatus.started_at && (
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span>{language === 'uz' ? 'Boshlandi' : language === 'ru' ? 'Начато' : 'Started'}:</span>
-                  {formatSyncTime(syncStatus.started_at)}
+              {currentSyncStatus.message && (
+                <div className="text-xs text-gray-400">
+                  {currentSyncStatus.message}
                 </div>
               )}
             </div>
           )}
 
-          {syncStatus.status === 'success' && (
+          {productSyncStatus?.status === 'success' && !isSyncRunning && (
             <div className="flex items-center gap-3">
               <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-green-600 to-green-400 rounded-full w-full" />
@@ -409,15 +440,15 @@ export default function Products() {
             </div>
           )}
 
-          {syncStatus.message && syncStatus.status === 'error' && (
+          {productSyncStatus?.message && productSyncStatus.status === 'error' && !isSyncRunning && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-              <p className="text-sm text-red-400">{syncStatus.message}</p>
+              <p className="text-sm text-red-400">{productSyncStatus.message}</p>
             </div>
           )}
 
-          {syncStatus.message && syncStatus.status === 'success' && (
+          {productSyncStatus?.message && productSyncStatus.status === 'success' && !isSyncRunning && (
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-              <p className="text-sm text-green-400">{syncStatus.message}</p>
+              <p className="text-sm text-green-400">{productSyncStatus.message}</p>
             </div>
           )}
         </div>

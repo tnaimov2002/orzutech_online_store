@@ -1,6 +1,7 @@
 import { Product } from '../types';
 
-const MOYSKLAD_SYNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moysklad-sync`;
+const MOYSKLAD_SYNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moysklad-sync-products`;
+const CATEGORY_SYNC_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moysklad-sync-categories`;
 
 interface ProductsResponse {
   ok: boolean;
@@ -145,17 +146,54 @@ export async function fetchProductBrands(): Promise<string[]> {
 export interface SyncResult {
   ok: boolean;
   synced?: number;
-  last_sync_at?: string;
-  message?: string;
+  deleted?: number;
+  removed_zero_stock?: number;
+  removed_orphaned?: number;
+  error?: string;
 }
 
-export async function triggerCategorySync(): Promise<{ ok: boolean; synced?: number; deleted?: number; error?: string }> {
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moysklad-sync-categories`;
-  const res = await fetch(url, { method: 'GET' });
+export async function triggerCategorySync(): Promise<SyncResult> {
+  try {
+    const res = await fetch(CATEGORY_SYNC_URL, { method: 'GET' });
 
-  if (!res.ok) {
-    return { ok: false, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+
+    return res.json();
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+export async function triggerProductSync(): Promise<SyncResult> {
+  try {
+    const res = await fetch(MOYSKLAD_SYNC_URL, { method: 'GET' });
+
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+
+    return res.json();
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+export async function triggerFullSync(): Promise<{ categories: SyncResult; products: SyncResult }> {
+  const categoriesResult = await triggerCategorySync();
+
+  if (!categoriesResult.ok) {
+    return {
+      categories: categoriesResult,
+      products: { ok: false, error: 'Skipped due to category sync failure' },
+    };
   }
 
-  return res.json();
+  const productsResult = await triggerProductSync();
+
+  return {
+    categories: categoriesResult,
+    products: productsResult,
+  };
 }
