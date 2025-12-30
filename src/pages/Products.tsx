@@ -165,15 +165,7 @@ export default function Products() {
         break;
     }
 
-    const { data, error } = await query;
-
-    console.log('[PRODUCTS] Fetch results:', {
-      count: data?.length || 0,
-      error: error?.message,
-      selectedCategory,
-      appliedBrands: appliedBrands.length,
-      priceRange: appliedPriceRange,
-    });
+    const { data } = await query;
 
     if (data) setProducts(data);
     setLoading(false);

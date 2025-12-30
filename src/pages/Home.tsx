@@ -63,13 +63,7 @@ export default function Home() {
   const fetchData = async () => {
     setLoading(true);
 
-    const rawTest = await supabase.from('products').select('id, name_uz, stock, stock_quantity').limit(5);
-    console.log('[HOME] RAW PRODUCTS TEST:', { data: rawTest.data, error: rawTest.error, count: rawTest.data?.length });
-
-    const rawCatTest = await supabase.from('categories').select('id, name_uz, status').limit(5);
-    console.log('[HOME] RAW CATEGORIES TEST:', { data: rawCatTest.data, error: rawCatTest.error, count: rawCatTest.data?.length });
-
-    const [newRes, popularRes, discountRes, categoriesRes, allProductsRes] = await Promise.all([
+    const [newRes, popularRes, discountRes, categoriesRes] = await Promise.all([
       supabase
         .from('products')
         .select('*, product_images(*), category:categories(*)')
@@ -96,40 +90,17 @@ export default function Home() {
         .select('*')
         .eq('status', 'active')
         .in('name_uz', FEATURED_CATEGORY_NAMES),
-      supabase
-        .from('products')
-        .select('*, product_images(*), category:categories(*)')
-        .gt('stock', 0)
-        .order('created_at', { ascending: false })
-        .limit(8),
     ]);
 
-    console.log('[HOME] Data fetch results:', {
-      newProducts: newRes.data?.length || 0,
-      newError: newRes.error?.message,
-      popularProducts: popularRes.data?.length || 0,
-      popularError: popularRes.error?.message,
-      discountProducts: discountRes.data?.length || 0,
-      discountError: discountRes.error?.message,
-      categories: categoriesRes.data?.length || 0,
-      categoriesError: categoriesRes.error?.message,
-      allProducts: allProductsRes.data?.length || 0,
-      allError: allProductsRes.error?.message,
-    });
-
-    if (newRes.data && newRes.data.length > 0) {
+    if (newRes.data) {
       setNewProducts(newRes.data);
-    } else if (allProductsRes.data && allProductsRes.data.length > 0) {
-      setNewProducts(allProductsRes.data.slice(0, 4));
     }
 
-    if (popularRes.data && popularRes.data.length > 0) {
+    if (popularRes.data) {
       setPopularProducts(popularRes.data);
-    } else if (allProductsRes.data && allProductsRes.data.length > 0) {
-      setPopularProducts(allProductsRes.data.slice(0, 4));
     }
 
-    if (discountRes.data && discountRes.data.length > 0) {
+    if (discountRes.data) {
       setDiscountProducts(discountRes.data);
     }
 

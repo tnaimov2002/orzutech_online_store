@@ -4,6 +4,9 @@ import { LanguageProvider } from './context/LanguageContext';
 import { CartProvider } from './context/CartContext';
 import { AdminProvider, useAdmin } from './context/AdminContext';
 import { ChatProvider } from './context/ChatContext';
+import { assertSupabaseOnly } from './lib/dataEnforcement';
+
+assertSupabaseOnly();
 
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
