@@ -73,9 +73,10 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     const { data } = await supabase
       .from('products')
       .select(`
-        id, name_uz, name_ru, name_en, price, stock_quantity,
+        id, name_uz, name_ru, name_en, price, stock_quantity, stock,
         product_images (image_url, is_primary)
       `)
+      .gt('stock', 0)
       .or(`name_uz.ilike.${searchTerm},name_ru.ilike.${searchTerm},name_en.ilike.${searchTerm},brand.ilike.${searchTerm}`)
       .limit(8);
 

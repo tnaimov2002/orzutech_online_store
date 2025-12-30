@@ -41,18 +41,21 @@ export default function Home() {
         .from('products')
         .select('*, product_images(*)')
         .eq('is_new', true)
+        .gt('stock', 0)
         .order('created_at', { ascending: false })
         .limit(4),
       supabase
         .from('products')
         .select('*, product_images(*)')
         .eq('is_popular', true)
+        .gt('stock', 0)
         .order('rating', { ascending: false })
         .limit(4),
       supabase
         .from('products')
         .select('*, product_images(*)')
         .eq('is_discount', true)
+        .gt('stock', 0)
         .not('original_price', 'is', null)
         .limit(4),
       supabase
