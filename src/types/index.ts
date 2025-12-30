@@ -64,6 +64,8 @@ export interface Product {
   category_id: string | null;
   brand: string | null;
   stock_quantity: number;
+  stock: number;
+  moysklad_id: string | null;
   weight_kg: number;
   warranty_uz: string;
   warranty_ru: string;

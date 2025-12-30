@@ -88,6 +88,7 @@ export default function ProductDetail() {
           .select('*, product_images(*)')
           .eq('category_id', productData.category_id)
           .neq('id', id)
+          .gt('stock', 0)
           .limit(4);
 
         if (relatedData) setRelatedProducts(relatedData);
@@ -275,12 +276,12 @@ export default function ProductDetail() {
               )}
             </div>
 
-            <div className={`flex items-center gap-2 ${product.stock_quantity > 0 ? 'text-green-600' : 'text-red-500'}`}>
-              {product.stock_quantity > 0 ? (
+            <div className={`flex items-center gap-2 ${(product.stock || product.stock_quantity) > 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {(product.stock || product.stock_quantity) > 0 ? (
                 <>
                   <Check className="w-5 h-5" />
                   <span className="font-medium">{t.product.inStock}</span>
-                  <span className="text-gray-500">({product.stock_quantity} {t.product.left})</span>
+                  <span className="text-gray-500">({product.stock || product.stock_quantity} {t.product.left})</span>
                 </>
               ) : (
                 <span className="font-medium">{t.product.outOfStock}</span>
@@ -322,7 +323,7 @@ export default function ProductDetail() {
                 </button>
                 <span className="w-12 text-center font-semibold text-lg">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(Math.min(product.stock_quantity, quantity + 1))}
+                  onClick={() => setQuantity(Math.min(product.stock || product.stock_quantity, quantity + 1))}
                   className="w-10 h-10 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 transition-colors"
                 >
                   +
@@ -335,7 +336,7 @@ export default function ProductDetail() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleBuyNow}
-                disabled={product.stock_quantity === 0}
+                disabled={(product.stock || product.stock_quantity) === 0}
                 className="flex-1 py-4 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 text-white rounded-xl font-semibold text-lg shadow-lg shadow-orange-500/30 transition-colors"
               >
                 {t.product.buyNow}
@@ -344,7 +345,7 @@ export default function ProductDetail() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleAddToCart}
-                disabled={product.stock_quantity === 0}
+                disabled={(product.stock || product.stock_quantity) === 0}
                 className="flex-1 py-4 border-2 border-orange-500 text-orange-500 hover:bg-orange-50 disabled:border-gray-300 disabled:text-gray-400 rounded-xl font-semibold text-lg flex items-center justify-center gap-2 transition-colors"
               >
                 <ShoppingCart className="w-5 h-5" />
