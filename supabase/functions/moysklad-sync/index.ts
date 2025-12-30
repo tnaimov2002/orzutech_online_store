@@ -90,18 +90,22 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const moyskladToken = Deno.env.get("MOYSKLAD_TOKEN");
+    const url = new URL(req.url);
+    const readOnly = url.searchParams.get("read_only") === "true";
+    const productId = url.searchParams.get("product_id");
+    const categoryId = url.searchParams.get("category_id");
+    const isNew = url.searchParams.get("is_new") === "true";
+    const isPopular = url.searchParams.get("is_popular") === "true";
+    const isDiscount = url.searchParams.get("is_discount") === "true";
+    const limitParam = url.searchParams.get("limit");
+    const limit = limitParam ? parseInt(limitParam, 10) : null;
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const missing: string[] = [];
 
-    if (!moyskladToken) missing.push("MOYSKLAD_TOKEN");
-    if (!supabaseUrl) missing.push("SUPABASE_URL");
-    if (!supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (missing.length) {
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
       return new Response(
-        JSON.stringify({ error: `Missing env vars: ${missing.join(", ")}` }),
+        JSON.stringify({ error: "Missing Supabase env vars" }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -112,6 +116,72 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl!, supabaseServiceRoleKey!, {
       auth: { persistSession: false },
     });
+
+    if (readOnly) {
+      let query = supabase
+        .from("products")
+        .select("*, product_images(*), category:categories(*)")
+        .gt("stock", 0)
+        .order("created_at", { ascending: false });
+
+      if (productId) {
+        const { data: product } = await supabase
+          .from("products")
+          .select("*, product_images(*), category:categories(*)")
+          .eq("id", productId)
+          .maybeSingle();
+
+        return new Response(
+          JSON.stringify({ ok: true, product }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if (categoryId) {
+        const { data: allCategories } = await supabase
+          .from("categories")
+          .select("id, parent_id");
+
+        const getAllDescendants = (parentId: string): string[] => {
+          const ids = [parentId];
+          const children = (allCategories || []).filter((c: any) => c.parent_id === parentId);
+          for (const child of children) {
+            ids.push(...getAllDescendants(child.id));
+          }
+          return ids;
+        };
+
+        const categoryIds = getAllDescendants(categoryId);
+        query = query.in("category_id", categoryIds);
+      }
+
+      if (isNew) query = query.eq("is_new", true);
+      if (isPopular) query = query.eq("is_popular", true);
+      if (isDiscount) query = query.eq("is_discount", true).not("original_price", "is", null);
+      if (limit) query = query.limit(limit);
+
+      const { data: products } = await query;
+
+      return new Response(
+        JSON.stringify({ ok: true, products: products || [] }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const moyskladToken = Deno.env.get("MOYSKLAD_TOKEN");
+    const missing: string[] = [];
+
+    if (!moyskladToken) missing.push("MOYSKLAD_TOKEN");
+
+    if (missing.length) {
+      return new Response(
+        JSON.stringify({ error: `Missing env vars: ${missing.join(", ")}` }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        },
+      );
+    }
 
     console.log("[MOYSKLAD] Fetching stock data...");
     const stockById = await fetchStock(moyskladToken!);
@@ -265,12 +335,19 @@ Deno.serve(async (req: Request) => {
       console.log(`[DB] Removed ${orphanedProducts.length} orphaned products`);
     }
 
+    const { data: finalProducts } = await supabase
+      .from("products")
+      .select("*, product_images(*), category:categories(*)")
+      .gt("stock", 0)
+      .order("created_at", { ascending: false });
+
     return new Response(
       JSON.stringify({
         ok: true,
         synced: productsWithStock.length,
         removed_zero_stock: productsToRemove.length,
         removed_orphaned: orphanedProducts.length,
+        products: finalProducts || [],
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

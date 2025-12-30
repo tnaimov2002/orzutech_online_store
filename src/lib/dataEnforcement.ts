@@ -1,42 +1,4 @@
-const SUPABASE_PRODUCT_FIELDS = ['id', 'name_uz', 'name_ru', 'name_en', 'price', 'stock', 'category_id', 'created_at'];
 const MOCK_PRODUCT_INDICATORS = ['mock', 'demo', 'test', 'sample', 'fake', 'dummy'];
-
-export function validateSupabaseSource<T extends Record<string, unknown>>(
-  data: T[] | null,
-  tableName: string
-): T[] {
-  if (!data) {
-    return [];
-  }
-
-  if (import.meta.env.DEV) {
-    for (const item of data) {
-      const itemStr = JSON.stringify(item).toLowerCase();
-      const hasMockIndicator = MOCK_PRODUCT_INDICATORS.some(indicator => itemStr.includes(indicator));
-
-      if (hasMockIndicator && tableName === 'products') {
-        console.warn(
-          `[DATA ENFORCEMENT WARNING] Potential mock/demo data detected in ${tableName}. ` +
-          'All product data MUST come from Supabase database only.'
-        );
-      }
-    }
-
-    if (tableName === 'products' && data.length > 0) {
-      const firstItem = data[0];
-      const hasRequiredFields = SUPABASE_PRODUCT_FIELDS.some(field => field in firstItem);
-
-      if (!hasRequiredFields) {
-        console.error(
-          `[DATA ENFORCEMENT ERROR] Products missing required Supabase fields. ` +
-          'Data source may not be Supabase database.'
-        );
-      }
-    }
-  }
-
-  return data;
-}
 
 export function assertSupabaseOnly(): void {
   if (import.meta.env.DEV) {
@@ -48,19 +10,49 @@ export function assertSupabaseOnly(): void {
       if (key in globalAny) {
         throw new Error(
           `[DATA ENFORCEMENT VIOLATION] Forbidden global "${key}" detected. ` +
-          'All product data MUST come from Supabase database only. ' +
+          'All product data MUST come from the moysklad-sync endpoint only. ' +
           'Remove any mock, CMS, or static product sources immediately.'
         );
       }
     }
+
+    console.info(
+      '[DATA ENFORCEMENT] Product data source: moysklad-sync Edge Function. ' +
+      'All product queries route through /functions/v1/moysklad-sync?read_only=true'
+    );
   }
 }
 
-export function logDataSource(source: 'supabase', tableName: string, count: number): void {
-  if (import.meta.env.DEV && source !== 'supabase') {
-    throw new Error(
-      `[DATA ENFORCEMENT VIOLATION] Invalid data source "${source}" for ${tableName}. ` +
-      'Only "supabase" is allowed as data source.'
+export function warnDirectSupabaseQuery(tableName: string): void {
+  if (import.meta.env.DEV && tableName === 'products') {
+    console.warn(
+      `[DATA ENFORCEMENT WARNING] Direct Supabase query to "${tableName}" table detected. ` +
+      'Products MUST be fetched from the moysklad-sync endpoint only. ' +
+      'Use fetchProducts() from services/productService.ts instead.'
     );
+  }
+}
+
+export function validateProductSource(products: unknown[], source: string): void {
+  if (import.meta.env.DEV) {
+    if (source !== 'moysklad-sync') {
+      console.error(
+        `[DATA ENFORCEMENT ERROR] Invalid product source: "${source}". ` +
+        'Products MUST come from the moysklad-sync endpoint only.'
+      );
+    }
+
+    if (Array.isArray(products) && products.length > 0) {
+      const firstProduct = products[0] as Record<string, unknown>;
+      const productStr = JSON.stringify(firstProduct).toLowerCase();
+      const hasMockIndicator = MOCK_PRODUCT_INDICATORS.some(indicator => productStr.includes(indicator));
+
+      if (hasMockIndicator) {
+        console.warn(
+          '[DATA ENFORCEMENT WARNING] Potential mock/demo data detected in products. ' +
+          'All product data MUST come from the moysklad-sync endpoint only.'
+        );
+      }
+    }
   }
 }

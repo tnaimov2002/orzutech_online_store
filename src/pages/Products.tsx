@@ -5,6 +5,7 @@ import { SlidersHorizontal, X, ChevronDown, Check, RotateCcw } from 'lucide-reac
 import { Product, Category } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { supabase } from '../lib/supabase';
+import { fetchProducts, fetchProductBrands } from '../services/productService';
 import ProductCard from '../components/ui/ProductCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { formatPrice } from '../utils/format';
@@ -56,40 +57,12 @@ export default function Products() {
 
   useEffect(() => {
     fetchCategories();
-    fetchBrands();
-
-    const productsChannel = supabase
-      .channel('products-page-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'products' },
-        () => {
-          fetchProducts();
-          fetchBrands();
-        }
-      )
-      .subscribe();
-
-    const categoriesChannel = supabase
-      .channel('categories-page-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'categories' },
-        () => {
-          fetchCategories();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(productsChannel);
-      supabase.removeChannel(categoriesChannel);
-    };
+    loadBrands();
   }, []);
 
   useEffect(() => {
-    fetchProducts();
-  }, [selectedCategory, appliedBrands, appliedPriceRange, sortBy, isNew, isPopular, isDiscount, categories]);
+    loadProducts();
+  }, [selectedCategory, appliedBrands, appliedPriceRange, sortBy, isNew, isPopular, isDiscount]);
 
   const fetchCategories = async () => {
     const { data } = await supabase
@@ -99,75 +72,26 @@ export default function Products() {
     if (data) setCategories(data);
   };
 
-  const fetchBrands = async () => {
-    const { data } = await supabase
-      .from('products')
-      .select('brand')
-      .not('brand', 'is', null);
-    if (data) {
-      const uniqueBrands = [...new Set(data.map((p) => p.brand).filter(Boolean))] as string[];
-      setBrands(uniqueBrands.sort());
-    }
+  const loadBrands = async () => {
+    const brandList = await fetchProductBrands();
+    setBrands(brandList);
   };
 
-  const getAllDescendantCategoryIds = (categoryId: string, allCategories: Category[]): string[] => {
-    const ids: string[] = [categoryId];
-    const children = allCategories.filter((c) => c.parent_id === categoryId);
-    for (const child of children) {
-      ids.push(...getAllDescendantCategoryIds(child.id, allCategories));
-    }
-    return ids;
-  };
-
-  const fetchProducts = async () => {
+  const loadProducts = async () => {
     setLoading(true);
 
-    let query = supabase
-      .from('products')
-      .select('*, product_images(*), category:categories(*)')
-      .gt('stock', 0)
-      .gte('price', appliedPriceRange[0])
-      .lte('price', appliedPriceRange[1]);
+    const data = await fetchProducts({
+      categoryId: selectedCategory || undefined,
+      isNew: isNew || undefined,
+      isPopular: isPopular || undefined,
+      isDiscount: isDiscount || undefined,
+      brands: appliedBrands.length > 0 ? appliedBrands : undefined,
+      minPrice: appliedPriceRange[0] > 0 ? appliedPriceRange[0] : undefined,
+      maxPrice: appliedPriceRange[1] < DEFAULT_PRICE_RANGE[1] ? appliedPriceRange[1] : undefined,
+      sortBy,
+    });
 
-    if (selectedCategory && categories.length > 0) {
-      const categoryIds = getAllDescendantCategoryIds(selectedCategory, categories);
-      query = query.in('category_id', categoryIds);
-    }
-
-    if (appliedBrands.length > 0) {
-      query = query.in('brand', appliedBrands);
-    }
-
-    if (isNew) {
-      query = query.eq('is_new', true);
-    }
-
-    if (isPopular) {
-      query = query.eq('is_popular', true);
-    }
-
-    if (isDiscount) {
-      query = query.eq('is_discount', true);
-    }
-
-    switch (sortBy) {
-      case 'newest':
-        query = query.order('created_at', { ascending: false });
-        break;
-      case 'priceAsc':
-        query = query.order('price', { ascending: true });
-        break;
-      case 'priceDesc':
-        query = query.order('price', { ascending: false });
-        break;
-      case 'popular':
-        query = query.order('rating', { ascending: false });
-        break;
-    }
-
-    const { data } = await query;
-
-    if (data) setProducts(data);
+    setProducts(data);
     setLoading(false);
   };
 

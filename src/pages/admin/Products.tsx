@@ -6,11 +6,13 @@ import {
   Edit,
   Trash2,
   AlertTriangle,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
+import { fetchAllProducts, triggerSync } from '../../services/productService';
 import { formatPrice } from '../../utils/format';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductModal from '../../components/admin/ProductModal';
@@ -23,6 +25,7 @@ export default function Products() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -31,7 +34,7 @@ export default function Products() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    fetchProducts();
+    loadProducts();
     fetchCategories();
   }, []);
 
@@ -44,14 +47,18 @@ export default function Products() {
     }
   }, [isDeleteModalOpen]);
 
-  const fetchProducts = async () => {
-    const { data } = await supabase
-      .from('products')
-      .select('*, product_images(*), category:categories(*)')
-      .order('created_at', { ascending: false });
-
-    if (data) setProducts(data);
+  const loadProducts = async () => {
+    setLoading(true);
+    const data = await fetchAllProducts();
+    setProducts(data);
     setLoading(false);
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    await triggerSync();
+    await loadProducts();
+    setSyncing(false);
   };
 
   const fetchCategories = async () => {
@@ -74,7 +81,7 @@ export default function Products() {
   };
 
   const handleModalSuccess = () => {
-    fetchProducts();
+    loadProducts();
   };
 
   const handleDeleteClick = (product: Product) => {
@@ -100,7 +107,7 @@ export default function Products() {
       await supabase.from('products').delete().eq('id', deletingProduct.id);
       setIsDeleteModalOpen(false);
       setDeletingProduct(null);
-      fetchProducts();
+      loadProducts();
     } catch (error) {
       console.error('Error deleting product:', error);
     } finally {
@@ -109,7 +116,8 @@ export default function Products() {
   };
 
   const filteredProducts = products.filter((product) =>
-    product.name_en.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.name_uz?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.name_en?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     product.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     product.sku?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -138,6 +146,20 @@ export default function Products() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+          >
+            <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">
+              {syncing
+                ? (language === 'uz' ? 'Sinxronlanmoqda...' : language === 'ru' ? 'Синхронизация...' : 'Syncing...')
+                : (language === 'uz' ? 'Sinxronlash' : language === 'ru' ? 'Синхронизировать' : 'Sync')}
+            </span>
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={() => handleOpenModal()}
             className="flex items-center gap-2 px-4 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-medium transition-colors"
           >
@@ -161,7 +183,8 @@ export default function Products() {
             const primaryImage = product.product_images?.find((img) => img.is_primary)?.image_url
               || product.product_images?.[0]?.image_url
               || 'https://images.pexels.com/photos/404280/pexels-photo-404280.jpeg?auto=compress&cs=tinysrgb&w=400';
-            const stockStatus = getStockStatus(product.stock_quantity);
+            const stockQty = product.stock || product.stock_quantity || 0;
+            const stockStatus = getStockStatus(stockQty);
 
             return (
               <motion.div
@@ -174,7 +197,7 @@ export default function Products() {
                 <div className="relative aspect-square">
                   <img
                     src={primaryImage}
-                    alt={product.name_en}
+                    alt={product.name_uz || product.name_en}
                     className="w-full h-full object-cover"
                   />
                   {stockStatus === 'out' && (
@@ -189,6 +212,13 @@ export default function Products() {
                       <span className="flex items-center gap-1 px-2 py-1 bg-yellow-500 text-black text-xs font-medium rounded-lg">
                         <AlertTriangle className="w-3 h-3" />
                         {t.admin.lowStock}
+                      </span>
+                    </div>
+                  )}
+                  {product.moysklad_id && (
+                    <div className="absolute top-2 left-2">
+                      <span className="px-2 py-1 bg-blue-500/80 text-white text-xs font-medium rounded-lg">
+                        MoySklad
                       </span>
                     </div>
                   )}
@@ -207,7 +237,7 @@ export default function Products() {
                     <p className={`text-sm font-medium ${
                       stockStatus === 'out' ? 'text-red-400' : stockStatus === 'low' ? 'text-yellow-400' : 'text-gray-400'
                     }`}>
-                      {language === 'uz' ? 'Ombor' : language === 'ru' ? 'Склад' : 'Stock'}: {product.stock_quantity}
+                      {language === 'uz' ? 'Ombor' : language === 'ru' ? 'Склад' : 'Stock'}: {stockQty}
                     </p>
                   </div>
                   <div className="mt-4 flex gap-2">

@@ -6,6 +6,7 @@ import { Product, Category } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { getSemanticIcon } from '../utils/categoryIcons';
+import { fetchNewProducts, fetchPopularProducts, fetchDiscountProducts } from '../services/productService';
 import BannerSlider from '../components/ui/BannerSlider';
 import ProductCard from '../components/ui/ProductCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -31,60 +32,15 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
-
-    const productsChannel = supabase
-      .channel('home-products-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'products' },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
-
-    const categoriesChannel = supabase
-      .channel('home-categories-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'categories' },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(productsChannel);
-      supabase.removeChannel(categoriesChannel);
-    };
   }, []);
 
   const fetchData = async () => {
     setLoading(true);
 
     const [newRes, popularRes, discountRes, categoriesRes] = await Promise.all([
-      supabase
-        .from('products')
-        .select('*, product_images(*), category:categories(*)')
-        .eq('is_new', true)
-        .gt('stock', 0)
-        .order('created_at', { ascending: false })
-        .limit(8),
-      supabase
-        .from('products')
-        .select('*, product_images(*), category:categories(*)')
-        .eq('is_popular', true)
-        .gt('stock', 0)
-        .order('rating', { ascending: false })
-        .limit(8),
-      supabase
-        .from('products')
-        .select('*, product_images(*), category:categories(*)')
-        .eq('is_discount', true)
-        .gt('stock', 0)
-        .not('original_price', 'is', null)
-        .limit(8),
+      fetchNewProducts(8),
+      fetchPopularProducts(8),
+      fetchDiscountProducts(8),
       supabase
         .from('categories')
         .select('*')
@@ -92,17 +48,9 @@ export default function Home() {
         .in('name_uz', FEATURED_CATEGORY_NAMES),
     ]);
 
-    if (newRes.data) {
-      setNewProducts(newRes.data);
-    }
-
-    if (popularRes.data) {
-      setPopularProducts(popularRes.data);
-    }
-
-    if (discountRes.data) {
-      setDiscountProducts(discountRes.data);
-    }
+    setNewProducts(newRes);
+    setPopularProducts(popularRes);
+    setDiscountProducts(discountRes);
 
     if (categoriesRes.data) {
       const orderedCategories = FEATURED_CATEGORY_NAMES

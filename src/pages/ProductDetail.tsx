@@ -17,6 +17,7 @@ import { Product, Review, ProductVariant } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { useCart } from '../context/CartContext';
 import { supabase } from '../lib/supabase';
+import { fetchProductById, fetchProductsByCategory } from '../services/productService';
 import { formatPrice, formatDate } from '../utils/format';
 import ProductCard from '../components/ui/ProductCard';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
@@ -47,18 +48,14 @@ export default function ProductDetail() {
 
   useEffect(() => {
     if (id) {
-      fetchProduct();
+      loadProduct();
     }
   }, [id]);
 
-  const fetchProduct = async () => {
+  const loadProduct = async () => {
     setLoading(true);
 
-    const { data: productData } = await supabase
-      .from('products')
-      .select('*, product_images(*), product_variants(*)')
-      .eq('id', id)
-      .maybeSingle();
+    const productData = await fetchProductById(id!);
 
     if (productData) {
       setProduct(productData);
@@ -83,15 +80,9 @@ export default function ProductDetail() {
       if (reviewsData) setReviews(reviewsData);
 
       if (productData.category_id) {
-        const { data: relatedData } = await supabase
-          .from('products')
-          .select('*, product_images(*), category:categories(*)')
-          .eq('category_id', productData.category_id)
-          .neq('id', id)
-          .gt('stock', 0)
-          .limit(4);
-
-        if (relatedData) setRelatedProducts(relatedData);
+        const relatedData = await fetchProductsByCategory(productData.category_id);
+        const filtered = relatedData.filter(p => p.id !== id).slice(0, 4);
+        setRelatedProducts(filtered);
       }
     }
 
