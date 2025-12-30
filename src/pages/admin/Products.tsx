@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -7,15 +7,27 @@ import {
   Trash2,
   AlertTriangle,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Clock,
+  FolderSync
 } from 'lucide-react';
 import { Product, Category } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { fetchAllProducts, triggerSync } from '../../services/productService';
+import { fetchAllProducts, triggerSync, triggerCategorySync, SyncResult } from '../../services/productService';
 import { formatPrice } from '../../utils/format';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ProductModal from '../../components/admin/ProductModal';
+
+interface SyncStatus {
+  entity: string;
+  status: 'success' | 'error' | 'in_progress' | 'pending';
+  message: string | null;
+  records_synced: number;
+  last_sync_at: string | null;
+}
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -26,17 +38,34 @@ export default function Products() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncingCategories, setSyncingCategories] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const loadSyncStatus = useCallback(async () => {
+    const { data } = await supabase
+      .from('sync_status')
+      .select('*')
+      .eq('entity', 'products')
+      .maybeSingle();
+
+    if (data) {
+      setSyncStatus(data as SyncStatus);
+    }
+  }, []);
 
   useEffect(() => {
     loadProducts();
     fetchCategories();
-  }, []);
+    loadSyncStatus();
+  }, [loadSyncStatus]);
 
   useEffect(() => {
     if (isDeleteModalOpen) {
@@ -56,9 +85,40 @@ export default function Products() {
 
   const handleSync = async () => {
     setSyncing(true);
-    await triggerSync();
+    setSyncError(null);
+    setLastSyncResult(null);
+
+    const result = await triggerSync();
+    setLastSyncResult(result);
+
+    if (!result.ok) {
+      setSyncError(result.error || 'Sync failed');
+    }
+
     await loadProducts();
+    await loadSyncStatus();
     setSyncing(false);
+  };
+
+  const handleCategorySync = async () => {
+    setSyncingCategories(true);
+    const result = await triggerCategorySync();
+
+    if (!result.ok) {
+      setSyncError(result.error || 'Category sync failed');
+    }
+
+    await fetchCategories();
+    setSyncingCategories(false);
+  };
+
+  const formatSyncTime = (dateStr: string | null) => {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return date.toLocaleString(language === 'ru' ? 'ru-RU' : language === 'uz' ? 'uz-UZ' : 'en-US', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
   };
 
   const fetchCategories = async () => {
@@ -146,8 +206,18 @@ export default function Products() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            onClick={handleCategorySync}
+            disabled={syncingCategories || syncing}
+            className="flex items-center gap-2 px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+            title={language === 'uz' ? 'Kategoriyalarni sinxronlash' : language === 'ru' ? 'Синхронизировать категории' : 'Sync Categories'}
+          >
+            <FolderSync className={`w-5 h-5 ${syncingCategories ? 'animate-spin' : ''}`} />
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={handleSync}
-            disabled={syncing}
+            disabled={syncing || syncingCategories}
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
           >
             <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
@@ -168,6 +238,72 @@ export default function Products() {
           </motion.button>
         </div>
       </div>
+
+      {(syncStatus || lastSyncResult || syncError) && (
+        <div className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            {syncStatus && (
+              <div className="flex items-center gap-2">
+                {syncStatus.status === 'success' && <CheckCircle className="w-5 h-5 text-green-400" />}
+                {syncStatus.status === 'error' && <XCircle className="w-5 h-5 text-red-400" />}
+                {syncStatus.status === 'in_progress' && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
+                {syncStatus.status === 'pending' && <Clock className="w-5 h-5 text-gray-400" />}
+                <span className={`text-sm font-medium ${
+                  syncStatus.status === 'success' ? 'text-green-400' :
+                  syncStatus.status === 'error' ? 'text-red-400' :
+                  syncStatus.status === 'in_progress' ? 'text-blue-400' :
+                  'text-gray-400'
+                }`}>
+                  {syncStatus.status === 'success' ? (language === 'uz' ? 'Muvaffaqiyatli' : language === 'ru' ? 'Успешно' : 'Success') :
+                   syncStatus.status === 'error' ? (language === 'uz' ? 'Xato' : language === 'ru' ? 'Ошибка' : 'Error') :
+                   syncStatus.status === 'in_progress' ? (language === 'uz' ? 'Jarayonda' : language === 'ru' ? 'В процессе' : 'In Progress') :
+                   (language === 'uz' ? 'Kutilmoqda' : language === 'ru' ? 'Ожидание' : 'Pending')}
+                </span>
+              </div>
+            )}
+
+            {syncStatus?.records_synced !== undefined && syncStatus.records_synced > 0 && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <span className="font-medium text-white">{syncStatus.records_synced}</span>
+                {language === 'uz' ? 'ta mahsulot' : language === 'ru' ? 'товаров' : 'products'}
+              </div>
+            )}
+
+            {syncStatus?.last_sync_at && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Clock className="w-4 h-4" />
+                {formatSyncTime(syncStatus.last_sync_at)}
+              </div>
+            )}
+
+            {lastSyncResult?.ok && (
+              <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
+                {lastSyncResult.synced !== undefined && (
+                  <span className="text-green-400">+{lastSyncResult.synced} synced</span>
+                )}
+                {lastSyncResult.removed_zero_stock !== undefined && lastSyncResult.removed_zero_stock > 0 && (
+                  <span className="text-yellow-400">-{lastSyncResult.removed_zero_stock} zero stock</span>
+                )}
+                {lastSyncResult.removed_orphaned !== undefined && lastSyncResult.removed_orphaned > 0 && (
+                  <span className="text-red-400">-{lastSyncResult.removed_orphaned} orphaned</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {syncError && (
+            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400">{syncError}</p>
+            </div>
+          )}
+
+          {syncStatus?.message && syncStatus.status === 'error' && (
+            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400">{syncStatus.message}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">

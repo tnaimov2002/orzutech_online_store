@@ -142,8 +142,28 @@ export async function fetchProductBrands(): Promise<string[]> {
   return brands.sort();
 }
 
-export async function triggerSync(): Promise<{ ok: boolean; synced?: number; error?: string }> {
-  const res = await fetch(MOYSKLAD_SYNC_URL);
+export interface SyncResult {
+  ok: boolean;
+  synced?: number;
+  removed_zero_stock?: number;
+  removed_orphaned?: number;
+  last_sync_at?: string;
+  error?: string;
+}
+
+export async function triggerSync(): Promise<SyncResult> {
+  const res = await fetch(MOYSKLAD_SYNC_URL, { method: 'GET' });
+
+  if (!res.ok) {
+    return { ok: false, error: `HTTP ${res.status}` };
+  }
+
+  return res.json();
+}
+
+export async function triggerCategorySync(): Promise<{ ok: boolean; synced?: number; deleted?: number; error?: string }> {
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/moysklad-sync-categories`;
+  const res = await fetch(url, { method: 'GET' });
 
   if (!res.ok) {
     return { ok: false, error: `HTTP ${res.status}` };

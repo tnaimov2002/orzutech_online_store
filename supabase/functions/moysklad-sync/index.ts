@@ -183,6 +183,16 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    await supabase
+      .from("sync_status")
+      .upsert({
+        entity: "products",
+        status: "in_progress",
+        message: "Sync started",
+        last_sync_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "entity" });
+
     console.log("[MOYSKLAD] Fetching stock data...");
     const stockById = await fetchStock(moyskladToken!);
     console.log(`[MOYSKLAD] Stock data received for ${stockById.size} items`);
@@ -341,6 +351,18 @@ Deno.serve(async (req: Request) => {
       .gt("stock", 0)
       .order("created_at", { ascending: false });
 
+    const syncMessage = `Synced ${productsWithStock.length} products, removed ${productsToRemove.length} (zero stock), ${orphanedProducts.length} (orphaned)`;
+    await supabase
+      .from("sync_status")
+      .upsert({
+        entity: "products",
+        status: "success",
+        message: syncMessage,
+        records_synced: productsWithStock.length,
+        last_sync_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "entity" });
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -348,11 +370,30 @@ Deno.serve(async (req: Request) => {
         removed_zero_stock: productsToRemove.length,
         removed_orphaned: orphanedProducts.length,
         products: finalProducts || [],
+        last_sync_at: new Date().toISOString(),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error("[ERROR] Sync failed:", error);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && supabaseServiceRoleKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: { persistSession: false },
+      });
+      await supabase
+        .from("sync_status")
+        .upsert({
+          entity: "products",
+          status: "error",
+          message: String(error),
+          last_sync_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "entity" });
+    }
+
     return new Response(
       JSON.stringify({ error: String(error) }),
       {
