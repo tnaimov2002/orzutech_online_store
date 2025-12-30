@@ -85,10 +85,10 @@ export default function ProductDetail() {
       if (productData.category_id) {
         const { data: relatedData } = await supabase
           .from('products')
-          .select('*, product_images(*)')
+          .select('*, product_images(*), category:categories(*)')
           .eq('category_id', productData.category_id)
           .neq('id', id)
-          .gt('stock', 0)
+          .or('stock.gt.0,stock_quantity.gt.0')
           .limit(4);
 
         if (relatedData) setRelatedProducts(relatedData);

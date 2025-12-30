@@ -124,8 +124,8 @@ export default function Products() {
 
     let query = supabase
       .from('products')
-      .select('*, product_images(*)')
-      .gt('stock', 0)
+      .select('*, product_images(*), category:categories(*)')
+      .or('stock.gt.0,stock_quantity.gt.0')
       .gte('price', appliedPriceRange[0])
       .lte('price', appliedPriceRange[1]);
 
@@ -165,7 +165,16 @@ export default function Products() {
         break;
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+
+    console.log('[PRODUCTS] Fetch results:', {
+      count: data?.length || 0,
+      error: error?.message,
+      selectedCategory,
+      appliedBrands: appliedBrands.length,
+      priceRange: appliedPriceRange,
+    });
+
     if (data) setProducts(data);
     setLoading(false);
   };

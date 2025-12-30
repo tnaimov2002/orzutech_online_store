@@ -63,38 +63,64 @@ export default function Home() {
   const fetchData = async () => {
     setLoading(true);
 
-    const [newRes, popularRes, discountRes, categoriesRes] = await Promise.all([
+    const [newRes, popularRes, discountRes, categoriesRes, allProductsRes] = await Promise.all([
       supabase
         .from('products')
-        .select('*, product_images(*)')
+        .select('*, product_images(*), category:categories(*)')
         .eq('is_new', true)
-        .gt('stock', 0)
+        .or('stock.gt.0,stock_quantity.gt.0')
         .order('created_at', { ascending: false })
-        .limit(4),
+        .limit(8),
       supabase
         .from('products')
-        .select('*, product_images(*)')
+        .select('*, product_images(*), category:categories(*)')
         .eq('is_popular', true)
-        .gt('stock', 0)
+        .or('stock.gt.0,stock_quantity.gt.0')
         .order('rating', { ascending: false })
-        .limit(4),
+        .limit(8),
       supabase
         .from('products')
-        .select('*, product_images(*)')
+        .select('*, product_images(*), category:categories(*)')
         .eq('is_discount', true)
-        .gt('stock', 0)
+        .or('stock.gt.0,stock_quantity.gt.0')
         .not('original_price', 'is', null)
-        .limit(4),
+        .limit(8),
       supabase
         .from('categories')
         .select('*')
         .eq('status', 'active')
         .in('name_uz', FEATURED_CATEGORY_NAMES),
+      supabase
+        .from('products')
+        .select('*, product_images(*), category:categories(*)')
+        .or('stock.gt.0,stock_quantity.gt.0')
+        .order('created_at', { ascending: false })
+        .limit(8),
     ]);
 
-    if (newRes.data) setNewProducts(newRes.data);
-    if (popularRes.data) setPopularProducts(popularRes.data);
-    if (discountRes.data) setDiscountProducts(discountRes.data);
+    console.log('[HOME] Data fetch results:', {
+      newProducts: newRes.data?.length || 0,
+      popularProducts: popularRes.data?.length || 0,
+      discountProducts: discountRes.data?.length || 0,
+      categories: categoriesRes.data?.length || 0,
+      allProducts: allProductsRes.data?.length || 0,
+    });
+
+    if (newRes.data && newRes.data.length > 0) {
+      setNewProducts(newRes.data);
+    } else if (allProductsRes.data && allProductsRes.data.length > 0) {
+      setNewProducts(allProductsRes.data.slice(0, 4));
+    }
+
+    if (popularRes.data && popularRes.data.length > 0) {
+      setPopularProducts(popularRes.data);
+    } else if (allProductsRes.data && allProductsRes.data.length > 0) {
+      setPopularProducts(allProductsRes.data.slice(0, 4));
+    }
+
+    if (discountRes.data && discountRes.data.length > 0) {
+      setDiscountProducts(discountRes.data);
+    }
 
     if (categoriesRes.data) {
       const orderedCategories = FEATURED_CATEGORY_NAMES
