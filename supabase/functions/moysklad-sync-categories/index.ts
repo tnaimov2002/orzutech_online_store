@@ -195,6 +195,17 @@ Deno.serve(async (req: Request) => {
       console.log(`[DB] Deleted ${idsToDelete.length} categories no longer in MoySklad`);
     }
 
+    await supabase
+      .from("sync_status")
+      .upsert({
+        entity: "categories",
+        last_sync_at: new Date().toISOString(),
+        status: "success",
+        message: `Synced ${payloadBase.length} categories, deleted ${idsToDelete.length}`,
+        records_synced: payloadBase.length,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "entity" });
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -205,6 +216,24 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("[ERROR] Sync failed:", error);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && supabaseServiceRoleKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: { persistSession: false },
+      });
+      await supabase
+        .from("sync_status")
+        .upsert({
+          entity: "categories",
+          last_sync_at: new Date().toISOString(),
+          status: "error",
+          message: String(error),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "entity" });
+    }
+
     return new Response(
       JSON.stringify({ error: "Unexpected error" }),
       {

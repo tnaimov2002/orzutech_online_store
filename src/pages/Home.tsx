@@ -31,6 +31,33 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
+
+    const productsChannel = supabase
+      .channel('home-products-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    const categoriesChannel = supabase
+      .channel('home-categories-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories' },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(productsChannel);
+      supabase.removeChannel(categoriesChannel);
+    };
   }, []);
 
   const fetchData = async () => {

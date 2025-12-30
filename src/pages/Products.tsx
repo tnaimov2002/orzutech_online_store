@@ -57,6 +57,34 @@ export default function Products() {
   useEffect(() => {
     fetchCategories();
     fetchBrands();
+
+    const productsChannel = supabase
+      .channel('products-page-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => {
+          fetchProducts();
+          fetchBrands();
+        }
+      )
+      .subscribe();
+
+    const categoriesChannel = supabase
+      .channel('categories-page-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories' },
+        () => {
+          fetchCategories();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(productsChannel);
+      supabase.removeChannel(categoriesChannel);
+    };
   }, []);
 
   useEffect(() => {

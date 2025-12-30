@@ -13,7 +13,11 @@ import {
   RotateCcw,
   AlertTriangle,
   X,
-  FileText
+  FileText,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Database
 } from 'lucide-react';
 import { Order } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
@@ -39,6 +43,15 @@ interface AuditLog {
   target_details: any;
 }
 
+interface SyncStatus {
+  id: string;
+  entity: string;
+  last_sync_at: string | null;
+  status: 'success' | 'error' | 'in_progress' | 'pending';
+  message: string | null;
+  records_synced: number;
+}
+
 type ResetType = 'revenue' | 'customers' | 'orders' | 'all';
 
 export default function Dashboard() {
@@ -52,6 +65,7 @@ export default function Dashboard() {
   });
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [recentAuditLogs, setRecentAuditLogs] = useState<AuditLog[]>([]);
+  const [syncStatuses, setSyncStatuses] = useState<SyncStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdminTools, setShowAdminTools] = useState(false);
   const [resetModal, setResetModal] = useState<{ isOpen: boolean; type: ResetType }>({
@@ -64,7 +78,7 @@ export default function Dashboard() {
   }, []);
 
   const fetchData = async () => {
-    const [ordersRes, customersRes, productsRes, recentRes, auditRes] = await Promise.all([
+    const [ordersRes, customersRes, productsRes, recentRes, auditRes, syncRes] = await Promise.all([
       supabase.from('orders').select('total, status'),
       supabase.from('customers').select('id', { count: 'exact' }),
       supabase.from('products').select('id', { count: 'exact' }),
@@ -78,6 +92,10 @@ export default function Dashboard() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(5),
+      supabase
+        .from('sync_status')
+        .select('*')
+        .order('entity'),
     ]);
 
     if (ordersRes.data) {
@@ -104,6 +122,10 @@ export default function Dashboard() {
 
     if (auditRes.data) {
       setRecentAuditLogs(auditRes.data);
+    }
+
+    if (syncRes.data) {
+      setSyncStatuses(syncRes.data);
     }
 
     setLoading(false);
@@ -332,6 +354,75 @@ export default function Dashboard() {
           </motion.div>
         ))}
       </div>
+
+      {syncStatuses.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="bg-gray-800/50 rounded-2xl border border-gray-700/50 p-6"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Database className="w-5 h-5 text-orange-500" />
+            <h2 className="text-lg font-semibold text-white">MoySklad Sync Status</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {syncStatuses.map((sync) => (
+              <div
+                key={sync.id}
+                className="bg-gray-900/50 rounded-xl p-4 border border-gray-700/30"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white font-medium capitalize">{sync.entity}</span>
+                  <div className="flex items-center gap-2">
+                    {sync.status === 'success' && (
+                      <span className="flex items-center gap-1 text-green-400 text-sm">
+                        <CheckCircle className="w-4 h-4" />
+                        Success
+                      </span>
+                    )}
+                    {sync.status === 'error' && (
+                      <span className="flex items-center gap-1 text-red-400 text-sm">
+                        <XCircle className="w-4 h-4" />
+                        Error
+                      </span>
+                    )}
+                    {sync.status === 'in_progress' && (
+                      <span className="flex items-center gap-1 text-yellow-400 text-sm">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Syncing
+                      </span>
+                    )}
+                    {sync.status === 'pending' && (
+                      <span className="flex items-center gap-1 text-gray-400 text-sm">
+                        <Clock className="w-4 h-4" />
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  {sync.last_sync_at && (
+                    <p className="text-gray-400">
+                      Last sync: {formatDateTime(sync.last_sync_at, language)}
+                    </p>
+                  )}
+                  {sync.records_synced > 0 && (
+                    <p className="text-gray-500">
+                      Records synced: {sync.records_synced}
+                    </p>
+                  )}
+                  {sync.message && sync.status === 'error' && (
+                    <p className="text-red-400/80 text-xs mt-2 truncate" title={sync.message}>
+                      {sync.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <motion.div

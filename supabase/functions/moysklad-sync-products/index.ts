@@ -265,6 +265,17 @@ Deno.serve(async (req: Request) => {
       console.log(`[DB] Removed ${orphanedProducts.length} orphaned products`);
     }
 
+    await supabase
+      .from("sync_status")
+      .upsert({
+        entity: "products",
+        last_sync_at: new Date().toISOString(),
+        status: "success",
+        message: `Synced ${productsWithStock.length} products, removed ${productsToRemove.length} zero-stock, ${orphanedProducts.length} orphaned`,
+        records_synced: productsWithStock.length,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "entity" });
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -276,6 +287,24 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     console.error("[ERROR] Sync failed:", error);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (supabaseUrl && supabaseServiceRoleKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: { persistSession: false },
+      });
+      await supabase
+        .from("sync_status")
+        .upsert({
+          entity: "products",
+          last_sync_at: new Date().toISOString(),
+          status: "error",
+          message: String(error),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "entity" });
+    }
+
     return new Response(
       JSON.stringify({ error: String(error) }),
       {
