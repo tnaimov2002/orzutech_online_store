@@ -27,6 +27,7 @@ export default function Home() {
   const [popularProducts, setPopularProducts] = useState<Product[]>([]);
   const [discountProducts, setDiscountProducts] = useState<Product[]>([]);
   const [featuredCategories, setFeaturedCategories] = useState<Category[]>([]);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -117,20 +118,30 @@ export default function Home() {
       allError: allProductsRes.error?.message,
     });
 
+    if (allProductsRes.data) {
+      setAllProducts(allProductsRes.data);
+      console.log('[HOME] Setting allProducts state:', allProductsRes.data.length);
+    }
+
     if (newRes.data && newRes.data.length > 0) {
       setNewProducts(newRes.data);
+      console.log('[HOME] Setting newProducts state:', newRes.data.length);
     } else if (allProductsRes.data && allProductsRes.data.length > 0) {
-      setNewProducts(allProductsRes.data.slice(0, 4));
+      setNewProducts(allProductsRes.data.slice(0, 8));
+      console.log('[HOME] Setting newProducts from allProducts:', allProductsRes.data.slice(0, 8).length);
     }
 
     if (popularRes.data && popularRes.data.length > 0) {
       setPopularProducts(popularRes.data);
+      console.log('[HOME] Setting popularProducts state:', popularRes.data.length);
     } else if (allProductsRes.data && allProductsRes.data.length > 0) {
-      setPopularProducts(allProductsRes.data.slice(0, 4));
+      setPopularProducts(allProductsRes.data.slice(0, 8));
+      console.log('[HOME] Setting popularProducts from allProducts:', allProductsRes.data.slice(0, 8).length);
     }
 
     if (discountRes.data && discountRes.data.length > 0) {
       setDiscountProducts(discountRes.data);
+      console.log('[HOME] Setting discountProducts state:', discountRes.data.length);
     }
 
     if (categoriesRes.data) {
@@ -138,6 +149,7 @@ export default function Home() {
         .map(name => categoriesRes.data.find(cat => cat.name_uz === name))
         .filter((cat): cat is Category => cat !== undefined);
       setFeaturedCategories(orderedCategories);
+      console.log('[HOME] Setting featuredCategories state:', orderedCategories.length);
     }
 
     setLoading(false);
@@ -182,6 +194,29 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
+      {/* DEBUG: Force render all products - proves data binding works */}
+      <section className="py-8 px-4 bg-green-50 border-4 border-green-500">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-4 p-4 bg-white rounded-lg">
+            <p className="font-bold text-green-700">FORCE RENDER TEST (allProducts: {allProducts.length})</p>
+            {allProducts[0] && (
+              <pre className="mt-2 text-xs bg-gray-100 p-2 rounded overflow-auto">
+                {JSON.stringify({ id: allProducts[0].id, name: allProducts[0].name_uz, stock: allProducts[0].stock }, null, 2)}
+              </pre>
+            )}
+          </div>
+          {allProducts.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {allProducts.slice(0, 8).map((product, index) => (
+                <ProductCard key={product.id} product={product} index={index} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-red-600 font-bold">NO PRODUCTS IN STATE - DATA BINDING FAILED</p>
+          )}
+        </div>
+      </section>
+
       <section className="pb-8 px-4">
         <div className="max-w-7xl mx-auto">
           <BannerSlider />
